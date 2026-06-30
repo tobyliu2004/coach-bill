@@ -3,8 +3,9 @@
 .env.*
 !.env.example
 
-# Personal Claude Code instructions (not shared with the team)
+# Personal Claude Code instructions + working scratch (not shared)
 CLAUDE.local.md
+PROGRESS.md
 
 # Python
 __pycache__/

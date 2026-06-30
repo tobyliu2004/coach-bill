@@ -49,6 +49,14 @@ sharpens the longer you use it. Later: a 2-week generated plan, a calendar view,
 7. pgvector recall layered in.
 8. Stretch: 2-week plan generator, calendar view, reminders, Stripe.
 
+## Deferred / known upgrades (don't forget)
+- **Nutrition accuracy:** macros are AI-estimated for now (always populated, behind a
+  `get_nutrition(text) -> macros` boundary). Upgrade to a real food database — USDA FoodData
+  Central (free) or Edamam — for verified numbers. Clean swap; the AI parsing layer is reused.
+- **Wearables:** add Whoop / Garmin / Oura / etc. via an aggregator (Terra, or open-source
+  Open Wearables). Apple Health requires a native iOS app. Feeds the existing sleep/bodyweight
+  tables — no schema change.
+
 ## Workflow
 Operating rules live in `CLAUDE.md`. In short, per feature: GitHub issue → plan mode (approved
 before code) → build (tests-first on data/auth/AI) → small commits → fresh-context review +
