@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 /** Mirror of the backend's HealthStatus response (see backend/app/schemas/health.py). */
 interface HealthStatus {
   ok: boolean
-  db: string
+  db: 'up' | 'down'
   latency_ms: number
 }
 
@@ -22,7 +22,10 @@ function App() {
     let cancelled = false
     fetch(`${API_URL}/health/db`)
       .then(async (res) => {
+        // Both 200 (up) and 503 (down) carry a HealthStatus body by design. Anything
+        // else answering (wrong server, proxy error page) fails the shape check below.
         const data = (await res.json()) as HealthStatus
+        if (typeof data.ok !== 'boolean') throw new Error(`unexpected response (HTTP ${res.status})`)
         if (!cancelled) setState({ kind: 'ok', data })
       })
       .catch((err: unknown) => {
