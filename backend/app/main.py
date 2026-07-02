@@ -15,7 +15,7 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Open the DB connection pool once at startup; close it on shutdown."""
+    """Create the DB pool once at startup (lazily — see db/pool.py); close it on shutdown."""
     pool = await create_pool(settings.database_url)
     app.state.pool = pool
     try:
@@ -26,10 +26,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="Coach Bill API", lifespan=lifespan)
 
+# NOTE: when auth lands and we need allow_credentials=True, cors_origins must stay an
+# explicit allowlist — never "*" (credentials + wildcard origin is the classic CORS hole).
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
