@@ -94,7 +94,7 @@ function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 1.2, delay: 0.9 }}
-            className="relative h-44 w-full md:h-56"
+            className="relative h-52 w-full md:h-72"
           >
             <VoiceField className="absolute inset-0 h-full w-full" />
           </m.div>
