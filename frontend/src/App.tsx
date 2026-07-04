@@ -1,80 +1,68 @@
-import { useEffect, useState } from 'react'
+import { LazyMotion, MotionConfig, domAnimation } from 'motion/react'
+import * as m from 'motion/react-m'
+import { CheckInDemo } from './components/CheckInDemo'
+import { HealthDot } from './components/HealthDot'
+import { VariantSwitcher } from './components/VariantSwitcher'
 
-/** Mirror of the backend's HealthStatus response (see backend/app/schemas/health.py). */
-interface HealthStatus {
-  ok: boolean
-  db: 'up' | 'down'
-  latency_ms: number
-}
+/** Site-wide motion defaults: expo-out, <300ms class, reduced-motion → fades. */
+const EASE_OUT_EXPO = [0.16, 1, 0.3, 1] as const
 
-/** The fetch is always in exactly one of these states — the union makes each branch type-safe. */
-type FetchState =
-  | { kind: 'loading' }
-  | { kind: 'ok'; data: HealthStatus }
-  | { kind: 'error'; message: string }
-
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+const rise = {
+  hidden: { opacity: 0, y: 12 },
+  show: { opacity: 1, y: 0 },
+} as const
 
 function App() {
-  const [state, setState] = useState<FetchState>({ kind: 'loading' })
-
-  useEffect(() => {
-    let cancelled = false
-    fetch(`${API_URL}/health/db`)
-      .then(async (res) => {
-        // Both 200 (up) and 503 (down) carry a HealthStatus body by design. Anything
-        // else answering (wrong server, proxy error page) fails the shape check below.
-        const data = (await res.json()) as HealthStatus
-        if (typeof data.ok !== 'boolean') throw new Error(`unexpected response (HTTP ${res.status})`)
-        if (!cancelled) setState({ kind: 'ok', data })
-      })
-      .catch((err: unknown) => {
-        const message = err instanceof Error ? err.message : 'request failed'
-        if (!cancelled) setState({ kind: 'error', message })
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
   return (
-    <main style={{ fontFamily: 'system-ui, sans-serif', padding: '3rem', textAlign: 'center' }}>
-      <h1>Coach Bill</h1>
-      <p style={{ color: '#666' }}>Backend / database health</p>
-      <StatusBadge state={state} />
-    </main>
-  )
-}
+    <MotionConfig reducedMotion="user" transition={{ duration: 0.35, ease: EASE_OUT_EXPO }}>
+      <LazyMotion features={domAnimation} strict>
+        <div aria-hidden className="grain" />
+        <div className="spotlight flex min-h-svh flex-col">
+          <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-5">
+            <span className="font-display text-lg font-semibold tracking-tight text-fg">Coach Bill</span>
+            <span className="font-mono text-xs tracking-wider text-fg-muted uppercase">Private beta</span>
+          </header>
 
-function StatusBadge({ state }: { state: FetchState }) {
-  switch (state.kind) {
-    case 'loading':
-      return <Badge color="#888" label="checking…" />
-    case 'error':
-      return <Badge color="#c0392b" label={`unreachable — ${state.message}`} />
-    case 'ok':
-      return state.data.ok ? (
-        <Badge color="#27ae60" label={`DB up · ${state.data.latency_ms} ms`} />
-      ) : (
-        <Badge color="#c0392b" label={`DB down (${state.data.db})`} />
-      )
-  }
-}
+          <main className="mx-auto flex w-full max-w-6xl flex-1 items-center px-6 py-16 md:py-24">
+            <div className="grid w-full items-center gap-12 lg:grid-cols-[1.1fr_1fr]">
+              <m.section
+                initial="hidden"
+                animate="show"
+                variants={{ show: { transition: { staggerChildren: 0.06 } } }}
+              >
+                <m.h1 variants={rise} className="font-display text-display-sm text-balance text-fg md:text-display">
+                  The coach who remembers <span className="text-accent">every rep</span>.
+                </m.h1>
+                <m.p variants={rise} className="mt-6 max-w-xl text-base leading-relaxed text-fg-muted md:text-lg">
+                  Say your check-in out loud. Bill logs the sets, tracks the trends, and answers
+                  like he&rsquo;s known you for months — because he has.
+                </m.p>
+                <m.div variants={rise} className="mt-8">
+                  <a
+                    href="mailto:tobyliu2004@gmail.com?subject=Coach%20Bill%20early%20access"
+                    className="inline-block rounded-control bg-accent px-5 py-2.5 text-sm font-semibold text-accent-ink transition-transform duration-150 ease-out-expo hover:scale-[1.02] active:scale-[0.98]"
+                  >
+                    Get early access
+                  </a>
+                </m.div>
+              </m.section>
 
-function Badge({ color, label }: { color: string; label: string }) {
-  return (
-    <span
-      style={{
-        display: 'inline-block',
-        padding: '0.5rem 1.25rem',
-        borderRadius: 999,
-        background: color,
-        color: 'white',
-        fontWeight: 600,
-      }}
-    >
-      {label}
-    </span>
+              <div className="justify-self-start lg:justify-self-end">
+                <CheckInDemo />
+              </div>
+            </div>
+          </main>
+
+          <footer className="border-t border-edge">
+            <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
+              <span className="font-mono text-xs text-fg-muted">© 2026 Coach Bill</span>
+              <HealthDot />
+            </div>
+          </footer>
+        </div>
+        <VariantSwitcher />
+      </LazyMotion>
+    </MotionConfig>
   )
 }
 

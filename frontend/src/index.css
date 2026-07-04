@@ -18,9 +18,9 @@
   --color-ice: oklch(0.828 0.101 230.3); /* future sleep/recovery data */
 
   /* --- type scale (display sizes carry their own tracking — never override) */
-  --text-display: 4.25rem;
-  --text-display--line-height: 1.02;
-  --text-display--letter-spacing: -0.028em;
+  --text-display: 3.5rem;
+  --text-display--line-height: 1.04;
+  --text-display--letter-spacing: -0.026em;
   --text-display--font-weight: 600;
   --text-display-sm: 2.75rem;
   --text-display-sm--line-height: 1.06;
