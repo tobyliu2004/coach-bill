@@ -1,0 +1,30 @@
+# Keep-alive ping (gap-audit item, July 2026):
+# - Supabase Free pauses the whole project after ~7 days without API activity.
+# - Render Free spins the service down after 15 min idle (~1 min cold start).
+# One ping to /health/db exercises BOTH (Render serves it; the SELECT 1 touches Supabase).
+# Every 4 hours keeps Supabase alive; it does NOT keep Render always-warm (that would
+# burn the 750 free instance-hours/mo) — cold starts are acceptable until launch, when
+# we flip to the always-on Starter instance anyway.
+
+name: keepalive
+
+on:
+  schedule:
+    - cron: "23 */4 * * *" # every 4 hours (:23 to avoid GitHub's congested :00 slot)
+  workflow_dispatch: {} # allow manual runs for testing
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping /health/db (wakes Render if asleep, keeps Supabase active)
+        run: |
+          # Render cold start can take ~1 min; retry a few times before declaring failure.
+          for attempt in 1 2 3; do
+            code=$(curl -s -o /tmp/body -w "%{http_code}" -m 120 https://api.coachbill.fit/health/db || echo "000")
+            echo "attempt $attempt -> HTTP $code: $(cat /tmp/body)"
+            [ "$code" = "200" ] && exit 0
+            sleep 30
+          done
+          echo "::error::health check did not return 200 after 3 attempts"
+          exit 1
