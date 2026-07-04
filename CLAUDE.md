@@ -7,6 +7,10 @@
 This file is how I work on this project. For *what* we're building and *why* (vision,
 architecture, data model, build order), read `PLAN.md`.
 
+## Session start
+Before any work, always read `PLAN.md` (what/why) and `PROGRESS.md` (where we are), then
+confirm back where we are and what's next before touching anything.
+
 ## Stack (so I know the tools)
 - Frontend: React + TypeScript (Vite)
 - Backend: FastAPI (Python, async)
@@ -33,12 +37,20 @@ Rule of thumb: if you could describe the diff in one sentence, skip the plan.
   test to make it pass.
 
 ## Layout
-<!-- fill after scaffold -->
-- `frontend/` — React app
-- `backend/` — `routes/` → `services/` → `db/`
+- `frontend/` — React app (Vite). `src/App.tsx` is the entry UI.
+- `backend/` — FastAPI app in `app/`: `routes/` → `services/` → `db/` (+ `schemas/` for
+  Pydantic shapes, `tests/`). One file per feature per layer (e.g. `routes/check_ins.py`).
+- `supabase/migrations/` — versioned schema (Supabase CLI).
 
 ## Commands
-<!-- fill after scaffold: backend run/test/lint/typecheck, frontend dev/build/typecheck -->
+Backend (run from `backend/`):
+- Dev server: `uv run uvicorn app.main:app --port 8001 --reload` (8000 is taken by Docker on this machine)
+- Tests: `uv run pytest` · with real-DB integration test: `uv run --env-file .env pytest`
+- Type-check: `uv run mypy app` · Lint: `uv run ruff check`
+
+Frontend (run from `frontend/`):
+- Dev server: `npm run dev` (localhost:5173)
+- Type-check + build: `npm run build` · Lint: `npm run lint`
 
 ## Never
 - Commit secrets. Keys live in `.env` (gitignored); never hardcode them.
