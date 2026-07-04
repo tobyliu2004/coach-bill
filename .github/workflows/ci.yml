@@ -1,0 +1,95 @@
+# CI — quality gates for every PR and every push to main.
+#
+# Design (researched, July 2026): NO workflow-level `paths:` filter — a required check
+# that never triggers leaves PRs blocked forever ("Pending"). Instead the workflow always
+# runs, a `changes` job detects what actually changed, the heavy jobs run conditionally,
+# and a single always-running `ci-ok` gate job summarizes. Only `ci-ok` is marked as a
+# required status check in the branch ruleset.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - '.github/workflows/ci.yml'
+            frontend:
+              - 'frontend/**'
+              - '.github/workflows/ci.yml'
+
+  backend:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv (reads backend/.python-version and uv.lock via the run dir)
+        uses: astral-sh/setup-uv@v8.2.0
+      - name: Install dependencies (locked)
+        run: uv sync --locked
+      - name: Lint (ruff)
+        run: uv run ruff check
+      - name: Type-check (mypy strict)
+        run: uv run mypy app
+      - name: Tests (unit; real-DB integration test auto-skips without DATABASE_URL)
+        run: uv run pytest -q
+
+  frontend:
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies (locked)
+        run: npm ci
+      - name: Type-check + build (tsc -b && vite build)
+        run: npm run build
+      - name: Lint
+        run: npm run lint
+
+  # The single required check. Green only when everything that needed to run succeeded.
+  ci-ok:
+    needs: [changes, backend, frontend]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify all results are success or skipped
+        run: |
+          results="${{ needs.changes.result }} ${{ needs.backend.result }} ${{ needs.frontend.result }}"
+          echo "job results: $results"
+          for r in $results; do
+            case "$r" in
+              success|skipped) ;;
+              *) echo "::error::a required job finished with result '$r'"; exit 1 ;;
+            esac
+          done
+          # `changes` itself must actually succeed (a skipped detector means nothing ran validly)
+          [ "${{ needs.changes.result }}" = "success" ] || { echo "::error::changes job did not succeed"; exit 1; }
