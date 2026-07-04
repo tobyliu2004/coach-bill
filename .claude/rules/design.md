@@ -48,6 +48,19 @@ is the brand, not a mode. (Semantic tokens keep a future light theme cheap.)
   root) so `prefers-reduced-motion` degrades to fades automatically. Don't bypass it with
   raw CSS animation on meaningful content.
 
+## Signature moments (landing/marketing surfaces)
+- Every marketing page earns exactly ONE signature element (currently: the hero voice strip —
+  glyph particles morphing voice-waveform ⇄ ledger line in `VoiceField.tsx`). Spend all
+  boldness there; keep everything around it quiet.
+- Scroll storytelling uses the pinned-chapter pattern (`CheckInChapter.tsx`): tall section
+  (~300vh) + `sticky top-0 h-dvh` stage + scroll-progress-driven beats via Motion
+  `useScroll`; per-frame updates are imperative DOM writes (MotionValues), never React
+  re-renders.
+- Lenis provides smooth scroll on marketing pages only — never in the daily app. Disabled
+  under reduced motion.
+- Canvas rules: 2D only (no WebGL), devicePixelRatio capped at 2, pause when offscreen/tab
+  hidden, reduced-motion renders a meaningful static frame (not blank).
+
 ## Never (the AI-slop ban list)
 - Purple/indigo gradients; any gradient as background paint; colored glows around cards.
 - Glassmorphism (`backdrop-blur` cards), colored card edge-stripes, floating blurred orbs.

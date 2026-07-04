@@ -1,65 +1,135 @@
-import { LazyMotion, MotionConfig, domAnimation } from 'motion/react'
+import { useEffect } from 'react'
+import Lenis from 'lenis'
+import 'lenis/dist/lenis.css'
+import { LazyMotion, MotionConfig, domAnimation, useReducedMotion } from 'motion/react'
 import * as m from 'motion/react-m'
-import { CheckInDemo } from './components/CheckInDemo'
+import { CheckInChapter } from './components/CheckInChapter'
 import { HealthDot } from './components/HealthDot'
 import { VariantSwitcher } from './components/VariantSwitcher'
+import { VoiceField } from './components/VoiceField'
 
 /** Site-wide motion defaults: expo-out, <300ms class, reduced-motion → fades. */
 const EASE_OUT_EXPO = [0.16, 1, 0.3, 1] as const
 
-const rise = {
-  hidden: { opacity: 0, y: 12 },
-  show: { opacity: 1, y: 0 },
-} as const
+const HEADLINE_LINES = ['The coach who', 'remembers', 'every rep.'] as const
+
+/** Load choreography: nav → headline lines unmask → sub/CTA → voice strip. */
+function lineDelay(i: number): number {
+  return 0.15 + i * 0.09
+}
+
+function SmoothScroll() {
+  const reduced = useReducedMotion()
+  useEffect(() => {
+    if (reduced) return
+    const lenis = new Lenis({ autoRaf: true })
+    return () => lenis.destroy()
+  }, [reduced])
+  return null
+}
 
 function App() {
   return (
     <MotionConfig reducedMotion="user" transition={{ duration: 0.35, ease: EASE_OUT_EXPO }}>
       <LazyMotion features={domAnimation} strict>
+        <SmoothScroll />
         <div aria-hidden className="grain" />
-        <div className="spotlight flex min-h-svh flex-col">
-          <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-5">
+
+        <header className="fixed inset-x-0 top-0 z-40 border-b border-edge bg-bg/90">
+          <m.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4"
+          >
             <span className="font-display text-lg font-semibold tracking-tight text-fg">Coach Bill</span>
             <span className="font-mono text-xs tracking-wider text-fg-muted uppercase">Private beta</span>
-          </header>
+          </m.div>
+        </header>
 
-          <main className="mx-auto flex w-full max-w-6xl flex-1 items-center px-6 py-16 md:py-24">
-            <div className="grid w-full items-center gap-12 lg:grid-cols-[1.1fr_1fr]">
-              <m.section
-                initial="hidden"
-                animate="show"
-                variants={{ show: { transition: { staggerChildren: 0.06 } } }}
-              >
-                <m.h1 variants={rise} className="font-display text-display-sm text-balance text-fg md:text-display">
-                  The coach who remembers <span className="text-accent">every rep</span>.
-                </m.h1>
-                <m.p variants={rise} className="mt-6 max-w-xl text-base leading-relaxed text-fg-muted md:text-lg">
-                  Say your check-in out loud. Bill logs the sets, tracks the trends, and answers
-                  like he&rsquo;s known you for months — because he has.
-                </m.p>
-                <m.div variants={rise} className="mt-8">
-                  <a
-                    href="mailto:tobyliu2004@gmail.com?subject=Coach%20Bill%20early%20access"
-                    className="inline-block rounded-control bg-accent px-5 py-2.5 text-sm font-semibold text-accent-ink transition-transform duration-150 ease-out-expo hover:scale-[1.02] active:scale-[0.98]"
+        {/* ---- Hero: thesis + the signature voice strip ---- */}
+        <section className="spotlight relative flex h-dvh min-h-[640px] flex-col overflow-hidden">
+          <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col justify-center px-6 pt-24">
+            <h1 className="font-display text-hero text-balance text-fg">
+              {HEADLINE_LINES.map((line, i) => (
+                <span key={line} className="mask-line">
+                  <m.span
+                    className="block"
+                    initial={{ y: '110%' }}
+                    animate={{ y: 0 }}
+                    transition={{ duration: 0.7, ease: EASE_OUT_EXPO, delay: lineDelay(i) }}
                   >
-                    Get early access
-                  </a>
-                </m.div>
-              </m.section>
+                    {i === HEADLINE_LINES.length - 1 ? (
+                      <>
+                        <span className="text-accent">every rep</span>.
+                      </>
+                    ) : (
+                      line
+                    )}
+                  </m.span>
+                </span>
+              ))}
+            </h1>
 
-              <div className="justify-self-start lg:justify-self-end">
-                <CheckInDemo />
-              </div>
-            </div>
-          </main>
+            <m.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, ease: EASE_OUT_EXPO, delay: 0.55 }}
+              className="mt-8 flex flex-col gap-6 md:flex-row md:items-center md:gap-10"
+            >
+              <a
+                href="mailto:tobyliu2004@gmail.com?subject=Coach%20Bill%20early%20access"
+                className="inline-block w-fit rounded-control bg-accent px-5 py-2.5 text-sm font-semibold text-accent-ink transition-transform duration-150 ease-out-expo hover:scale-[1.02] active:scale-[0.98]"
+              >
+                Get early access
+              </a>
+              <p className="max-w-md text-base leading-relaxed text-fg-muted">
+                Say your check-in out loud. Bill logs it, tracks it, and coaches you like
+                he&rsquo;s known you for months — because he has.
+              </p>
+            </m.div>
+          </div>
 
+          {/* The signature: voice dissolving into a ledger line, on loop. */}
+          <m.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 1.2, delay: 0.9 }}
+            className="relative h-44 w-full md:h-56"
+          >
+            <VoiceField className="absolute inset-0 h-full w-full" />
+          </m.div>
+
+          <div className="mx-auto w-full max-w-6xl px-6 pb-5">
+            <p className="font-mono text-xs tracking-widest text-fg-muted uppercase">
+              Scroll — one check-in, start to coached
+            </p>
+          </div>
+        </section>
+
+        {/* ---- Chapter: 01 speak → 02 logged → 03 coached ---- */}
+        <CheckInChapter />
+
+        {/* ---- End cap ---- */}
+        <section className="relative">
+          <div className="mx-auto flex w-full max-w-6xl flex-col items-start gap-6 px-6 py-28">
+            <h2 className="font-display text-display-sm text-balance text-fg">
+              Thirty users this summer. Then we close the door.
+            </h2>
+            <a
+              href="mailto:tobyliu2004@gmail.com?subject=Coach%20Bill%20early%20access"
+              className="inline-block rounded-control bg-accent px-5 py-2.5 text-sm font-semibold text-accent-ink transition-transform duration-150 ease-out-expo hover:scale-[1.02] active:scale-[0.98]"
+            >
+              Get early access
+            </a>
+          </div>
           <footer className="border-t border-edge">
             <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
               <span className="font-mono text-xs text-fg-muted">© 2026 Coach Bill</span>
               <HealthDot />
             </div>
           </footer>
-        </div>
+        </section>
+
         <VariantSwitcher />
       </LazyMotion>
     </MotionConfig>
