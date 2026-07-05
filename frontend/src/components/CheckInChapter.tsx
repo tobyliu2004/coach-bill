@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useMotionValueEvent, useReducedMotion, useScroll, useTransform } from 'motion/react'
 import * as m from 'motion/react-m'
 
@@ -54,7 +54,7 @@ export function CheckInChapter() {
     offset: ['start start', 'end end'],
   })
 
-  useMotionValueEvent(scrollYProgress, 'change', (p) => {
+  const applyProgress = (p: number) => {
     // Reduced motion: show the finished state, no scrubbing.
     const done = reduced ? 1 : p
 
@@ -100,7 +100,16 @@ export function CheckInChapter() {
     if (numeralRef.current && numeralRef.current.textContent !== BEATS[active]!.n) {
       numeralRef.current.textContent = BEATS[active]!.n
     }
-  })
+  }
+
+  useMotionValueEvent(scrollYProgress, 'change', applyProgress)
+
+  // Paint the initial state on mount — reduced-motion users must see the
+  // finished chapter without ever scrolling (change events never fire at 0).
+  useEffect(() => {
+    applyProgress(scrollYProgress.get())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reduced])
 
   // Stage entrance (one-shot, not scrubbed).
   const stageOpacity = useTransform(scrollYProgress, [0, 0.04], [0.4, 1])

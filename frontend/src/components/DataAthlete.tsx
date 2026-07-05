@@ -434,15 +434,17 @@ export function DataAthlete({ className }: { className?: string }) {
       return height * 0.55 + n * height * 0.3
     }
 
-    const draw = (time: number) => {
+    const frozen = frozenSceneIndex() // parse the dev param once, not per frame
+
+    const draw = (rawTime: number) => {
       if (!running) return
       if (!atlas || scenes.length === 0) {
         raf = requestAnimationFrame(draw)
         return
       }
+      // Reduced motion: freeze the clock entirely — one static frame.
+      const time = reduced ? 0 : rawTime
       ctx.clearRect(0, 0, width, height)
-
-      const frozen = frozenSceneIndex()
       const sceneCount = scenes.length
       const cycle =
         frozen !== null
@@ -487,7 +489,7 @@ export function DataAthlete({ className }: { className?: string }) {
         if (reduced) gust = 0
 
         const wx = p.homeX
-        const wy = waveY(wx, p.seed, reduced ? 0 : time)
+        const wy = waveY(wx, p.seed, time)
         let x = wx + ((target?.x ?? wx) - wx) * attract
         let y = wy + ((target?.y ?? wy) - wy) * attract
         if (gust > 0) {
@@ -515,7 +517,8 @@ export function DataAthlete({ className }: { className?: string }) {
         ctx.drawImage(atlas, glyphIx * cell, colorRow * cell, cell, cell, x - cell / 2, y - cell / 2, cell, cell)
       }
       ctx.globalAlpha = 1
-      raf = requestAnimationFrame(draw)
+      // Reduced motion: one static frame, no loop — battery stays whole.
+      raf = reduced ? 0 : requestAnimationFrame(draw)
     }
 
     const start = () => {
@@ -528,7 +531,13 @@ export function DataAthlete({ className }: { className?: string }) {
 
     void build().then(start)
 
+    let firstResize = true
     const ro = new ResizeObserver(() => {
+      // The observer fires once on observe(); the mount build handles that.
+      if (firstResize) {
+        firstResize = false
+        return
+      }
       stop()
       void build().then(start)
     })
