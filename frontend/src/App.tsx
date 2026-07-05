@@ -4,9 +4,9 @@ import 'lenis/dist/lenis.css'
 import { LazyMotion, MotionConfig, domAnimation, useReducedMotion } from 'motion/react'
 import * as m from 'motion/react-m'
 import { CheckInChapter } from './components/CheckInChapter'
+import { DataAthlete } from './components/DataAthlete'
 import { HealthDot } from './components/HealthDot'
 import { VariantSwitcher } from './components/VariantSwitcher'
-import { VoiceField } from './components/VoiceField'
 
 /** Site-wide motion defaults: expo-out, <300ms class, reduced-motion → fades. */
 const EASE_OUT_EXPO = [0.16, 1, 0.3, 1] as const
@@ -46,9 +46,19 @@ function App() {
           </m.div>
         </header>
 
-        {/* ---- Hero: thesis + the signature voice strip ---- */}
+        {/* ---- Hero: thesis + the data athlete ---- */}
         <section className="spotlight relative flex h-dvh min-h-[640px] flex-col overflow-hidden">
-          <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col justify-center px-6 pt-24">
+          {/* The signature: a life-size athlete made of data, cycling lifts. */}
+          <m.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 1.4, delay: 0.7 }}
+            className="absolute inset-0"
+          >
+            <DataAthlete className="h-full w-full" />
+          </m.div>
+
+          <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-1 flex-col justify-center px-6 pt-24">
             <h1 className="font-display text-hero text-balance text-fg">
               {HEADLINE_LINES.map((line, i) => (
                 <span key={line} className="mask-line">
@@ -89,17 +99,7 @@ function App() {
             </m.div>
           </div>
 
-          {/* The signature: voice dissolving into a ledger line, on loop. */}
-          <m.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 1.2, delay: 0.9 }}
-            className="relative h-52 w-full md:h-72"
-          >
-            <VoiceField className="absolute inset-0 h-full w-full" />
-          </m.div>
-
-          <div className="mx-auto w-full max-w-6xl px-6 pb-5">
+          <div className="relative z-10 mx-auto w-full max-w-6xl px-6 pb-5">
             <p className="font-mono text-xs tracking-widest text-fg-muted uppercase">
               Scroll — one check-in, start to coached
             </p>
