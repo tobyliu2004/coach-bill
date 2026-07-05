@@ -36,6 +36,14 @@ interface TargetPoint {
   shade: number // 0..1 source luminance — drives glyph choice AND alpha
 }
 
+interface Scene {
+  points: TargetPoint[]
+  /** Blurred ghost of the photo, drawn faintly under the glyphs — the
+   * continuous tone that makes the figure read as a real person. */
+  underlay: HTMLCanvasElement | null
+  box: { x: number; y: number; w: number; h: number }
+}
+
 interface Particle {
   homeX: number
   seed: number
@@ -70,14 +78,15 @@ function imageTargets(
   box: { x: number; y: number; w: number; h: number },
   colStep: number,
   rowStep: number,
-): TargetPoint[] {
+): Scene {
+  const empty: Scene = { points: [], underlay: null, box }
   const w = Math.max(1, Math.floor(box.w))
   const h = Math.max(1, Math.floor(box.h))
   const off = document.createElement('canvas')
   off.width = w
   off.height = h
   const ctx = off.getContext('2d', { willReadFrequently: true })
-  if (!ctx) return []
+  if (!ctx) return empty
   // Pass 1: contain-fit, then find the content bounding box — many sources
   // carry large margins that would otherwise shrink the figure.
   const scale = Math.min(w / img.naturalWidth, h / img.naturalHeight)
@@ -189,7 +198,7 @@ function imageTargets(
     }
     sizes.push(size)
   }
-  if (sizes.length === 0) return []
+  if (sizes.length === 0) return empty
   const biggest = Math.max(...sizes)
   const keepBlob = (x: number, y: number): boolean => {
     const l = label[((y / GRID) | 0) * gw + ((x / GRID) | 0)]!
@@ -209,7 +218,7 @@ function imageTargets(
       if (y > maxY) maxY = y
     }
   }
-  if (maxX <= minX || maxY <= minY) return []
+  if (maxX <= minX || maxY <= minY) return empty
   // Pass 2: redraw zoomed so the content fills the box.
   const zoom = Math.min(w / (maxX - minX), h / (maxY - minY)) * 0.96
   ctx.clearRect(0, 0, w, h)
@@ -288,7 +297,28 @@ function imageTargets(
     const keep = MAX_FIGURE_POINTS / points.length
     points = points.filter((_, i) => (i * keep) % 1 < keep)
   }
-  return points
+
+  // Ghost underlay: blur via downsample→upsample (no ctx.filter needed).
+  // Continuous tone under the glyphs is what sells "real person".
+  let underlay: HTMLCanvasElement | null = null
+  const tiny = document.createElement('canvas')
+  tiny.width = Math.max(1, Math.round(w / 7))
+  tiny.height = Math.max(1, Math.round(h / 7))
+  const tctx = tiny.getContext('2d')
+  if (tctx) {
+    tctx.drawImage(off, 0, 0, tiny.width, tiny.height)
+    underlay = document.createElement('canvas')
+    underlay.width = w
+    underlay.height = h
+    const uctx = underlay.getContext('2d')
+    if (uctx) {
+      uctx.imageSmoothingEnabled = true
+      uctx.drawImage(tiny, 0, 0, w, h)
+    } else {
+      underlay = null
+    }
+  }
+  return { points, underlay, box }
 }
 
 function readTheme(): { accent: string; fg: string; muted: string; font: string } {
@@ -333,7 +363,7 @@ export function DataAthlete({ className }: { className?: string }) {
 
     let raf = 0
     let particles: Particle[] = []
-    let scenes: TargetPoint[][] = []
+    let scenes: Scene[] = []
     let atlas: HTMLCanvasElement | null = null
     let cell = 0
     let glyphSize = 8
@@ -374,7 +404,7 @@ export function DataAthlete({ className }: { className?: string }) {
       const figBox = { x: figX, y: figY, w: figW, h: figH }
       scenes = (images ?? []).map((img) => imageTargets(img, figBox, colStep, rowStep))
       if (scenes.length === 0) return
-      const maxTargets = Math.max(...scenes.map((s) => s.length))
+      const maxTargets = Math.max(...scenes.map((s) => s.points.length))
       const fillers = Math.round(width / 3)
       particles = Array.from({ length: maxTargets + fillers }, (_, i) => ({
         homeX: ((i * 0.618034) % 1) * width,
@@ -415,7 +445,19 @@ export function DataAthlete({ className }: { className?: string }) {
             : (time % (SCENE_MS * sceneCount)) / (SCENE_MS * sceneCount)
       const sceneIx = Math.min(sceneCount - 1, Math.floor(cycle * sceneCount))
       const local = cycle * sceneCount - sceneIx
-      const targets = scenes[sceneIx]!
+      const scene = scenes[sceneIx]!
+      const targets = scene.points
+
+      // Ghost photo underlay — fades with the scene envelope, gone mid-gust.
+      if (scene.underlay) {
+        const env =
+          smoothstep(local / ASSEMBLE_END) * (1 - smoothstep((local - HOLD_END) / (1 - HOLD_END)))
+        if (env > 0.01) {
+          ctx.globalAlpha = env * 0.12
+          ctx.drawImage(scene.underlay, scene.box.x, scene.box.y)
+          ctx.globalAlpha = 1
+        }
+      }
 
       const fillerStart = particles.length - Math.round(width / 3)
       for (let i = 0; i < particles.length; i++) {
