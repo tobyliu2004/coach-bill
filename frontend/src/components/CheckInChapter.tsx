@@ -46,6 +46,7 @@ export function CheckInChapter() {
   const valueRefs = useRef<Array<HTMLElement | null>>([])
   const beatRefs = useRef<Array<HTMLLIElement | null>>([])
   const railRef = useRef<HTMLDivElement | null>(null)
+  const numeralRef = useRef<HTMLSpanElement | null>(null)
   const reduced = useReducedMotion()
 
   const { scrollYProgress } = useScroll({
@@ -88,7 +89,7 @@ export function CheckInChapter() {
       replyRef.current.textContent = REPLY.slice(0, chars)
     }
 
-    // Progress rail + beat labels.
+    // Progress rail + beat labels + the giant ghost numeral.
     if (railRef.current) railRef.current.style.transform = `scaleY(${clamp01(done / 0.9)})`
     const active = done < 0.38 ? 0 : done < 0.66 ? 1 : 2
     beatRefs.current.forEach((li, i) => {
@@ -96,6 +97,9 @@ export function CheckInChapter() {
       li.style.opacity = i === active ? '1' : '0.35'
       li.style.color = i === active ? 'var(--accent)' : 'var(--fg-muted)'
     })
+    if (numeralRef.current && numeralRef.current.textContent !== BEATS[active]!.n) {
+      numeralRef.current.textContent = BEATS[active]!.n
+    }
   })
 
   // Stage entrance (one-shot, not scrubbed).
@@ -103,11 +107,20 @@ export function CheckInChapter() {
 
   return (
     <section ref={sectionRef} data-tone="raised" className="relative h-[320vh] bg-surface">
-      <div className="sticky top-0 flex h-dvh items-center overflow-hidden">
-        <div className="mx-auto grid w-full max-w-6xl gap-10 px-6 md:grid-cols-[auto_1fr] md:gap-16">
+      <div className="spotlight sticky top-0 flex h-dvh items-center overflow-hidden">
+        {/* Giant ghost numeral — the chapter counter at cinematic scale. */}
+        <span
+          ref={numeralRef}
+          aria-hidden
+          className="font-display pointer-events-none absolute top-1/2 right-0 -translate-y-1/2 text-[42vh] leading-none font-semibold text-fg opacity-[0.045] select-none md:right-8"
+        >
+          01
+        </span>
+
+        <div className="relative mx-auto grid w-full max-w-6xl gap-10 px-6 md:grid-cols-[auto_1fr] md:gap-16">
           {/* Beat rail — a true sequence, so the numbering carries information. */}
           <div className="flex gap-6 md:flex-col md:justify-center">
-            <div aria-hidden className="relative hidden w-px bg-edge md:block">
+            <div aria-hidden className="relative hidden w-0.5 bg-edge md:block">
               <div
                 ref={railRef}
                 className="absolute inset-x-0 top-0 h-full origin-top bg-accent"
@@ -131,26 +144,26 @@ export function CheckInChapter() {
             </ol>
           </div>
 
-          <m.div style={{ opacity: stageOpacity }} className="max-w-2xl">
+          <m.div style={{ opacity: stageOpacity }} className="max-w-3xl">
             <p className="font-mono text-xs tracking-widest text-fg-muted uppercase">
               One check-in, thirty seconds
             </p>
 
             <p
               ref={transcriptRef}
-              className="mt-6 min-h-24 text-2xl leading-snug text-fg md:text-3xl"
+              className="font-display text-display-sm mt-6 min-h-40 text-balance text-fg md:min-h-48"
             >
               {' '}
             </p>
 
-            <dl className="mt-10 flex flex-col gap-3 border-t border-edge pt-6">
+            <dl className="mt-8 flex flex-col gap-4 border-t border-edge pt-6">
               {ROWS.map((row, i) => (
                 <div
                   key={row.label}
                   ref={(el) => {
                     rowRefs.current[i] = el
                   }}
-                  className="flex items-baseline justify-between gap-4"
+                  className="flex items-baseline justify-between gap-4 border-b border-edge pb-4 last:border-b-0"
                   style={{ opacity: 0 }}
                 >
                   <dt className="font-mono text-xs tracking-wider text-fg-muted uppercase">
@@ -160,7 +173,7 @@ export function CheckInChapter() {
                     ref={(el) => {
                       valueRefs.current[i] = el
                     }}
-                    className="font-mono text-sm text-fg tabular-nums slashed-zero md:text-base"
+                    className="font-mono text-lg text-fg tabular-nums slashed-zero md:text-2xl"
                   />
                 </div>
               ))}
@@ -168,10 +181,10 @@ export function CheckInChapter() {
 
             <p
               ref={replyBlockRef}
-              className="mt-10 border-t border-edge pt-6 text-base leading-relaxed text-fg md:text-lg"
+              className="mt-8 text-lg leading-relaxed text-fg md:text-xl"
               style={{ opacity: 0 }}
             >
-              <span className="font-mono text-xs tracking-wider text-accent uppercase">Bill · </span>
+              <span className="font-mono text-sm tracking-wider text-accent uppercase">Bill · </span>
               <span ref={replyRef} />
               <span aria-hidden className="cursor-blink ml-0.5 inline-block h-[1.1em] w-[2px] translate-y-[2px] bg-accent" />
             </p>
