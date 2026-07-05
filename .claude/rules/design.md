@@ -4,14 +4,12 @@ Apply to **every** screen, no exceptions — consistency IS the premium feel. Va
 `frontend/src/index.css` (the token file); this doc is the why + the rules. Dark-only: dark
 is the brand, not a mode. (Semantic tokens keep a future light theme cheap.)
 
-> ⏳ = pending the by-eye pick (issue #9 checkpoint); update this doc when locked.
-
 ## Color
 - Screens are ~95% ink + white. **Exactly two text colors**: `text-fg` (near-white) and
   `text-fg-muted` (the one gray). Never invent a third gray.
 - **Exactly three surfaces**: `bg-bg` (page) → `bg-surface` (card) → `bg-raised` (popover).
   Elevation = surface step + hairline border (`border-edge`), **never drop shadows** on dark.
-- **One accent** (⏳ amber vs volt), ≤5% of any screen: primary CTA, the key stat, one moment
+- **One accent — LOCKED: amber** (`#FFB224`, hot ember `#FF6B2C`), ≤5% of any screen: primary CTA, the key stat, one moment
   of energy. `accent-hot` for large type/CTAs only (contrast is AA-large, not AA-small).
   Everything else stays grayscale — data earns color, decoration doesn't.
 - Gradients are **light, not paint**: `.spotlight` glow is the only sanctioned gradient.
@@ -19,8 +17,8 @@ is the brand, not a mode. (Semantic tokens keep a future light theme cheap.)
 - New colors require updating the token file + this doc — never inline hex in components.
 
 ## Typography
-- Fonts (⏳ Archivo-wide + IBM Plex Mono vs Geist + Geist Mono): `font-display` for
-  headlines (wide stance via `--display-width`), `font-sans` body, `font-mono` for ALL data.
+- Fonts — LOCKED: **Archivo Variable** (wide stance for display via `--display-width: 125%`)
+  + **IBM Plex Mono** for ALL data. `font-display` headlines, `font-sans` body, `font-mono` data.
 - Display sizes only via `text-display` / `text-display-sm` — tracking (−0.028/−0.022em) and
   weight are baked into the tokens; never hand-set letter-spacing on headlines.
 - Hierarchy comes from **size jumps and color** (fg vs fg-muted), not extra weights.

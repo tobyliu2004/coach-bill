@@ -379,7 +379,7 @@ export function DataAthlete({ className }: { className?: string }) {
     let running = true
     let visible = true
     let generation = 0
-    let theme = readTheme()
+    const theme = readTheme()
     const dpr = Math.min(window.devicePixelRatio || 1, 2)
 
     const build = async () => {
@@ -547,20 +547,12 @@ export function DataAthlete({ className }: { className?: string }) {
     }
     document.addEventListener('visibilitychange', onVisibility)
 
-    const mo = new MutationObserver(() => {
-      theme = readTheme()
-      stop()
-      void build().then(start)
-    })
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ['data-font', 'data-accent'] })
-
     return () => {
       running = false
       generation++
       stop()
       ro.disconnect()
       io.disconnect()
-      mo.disconnect()
       document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [reduced])

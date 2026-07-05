@@ -6,7 +6,6 @@ import * as m from 'motion/react-m'
 import { CheckInChapter } from './components/CheckInChapter'
 import { DataAthlete } from './components/DataAthlete'
 import { HealthDot } from './components/HealthDot'
-import { VariantSwitcher } from './components/VariantSwitcher'
 
 /** Site-wide motion defaults: expo-out, <300ms class, reduced-motion → fades. */
 const EASE_OUT_EXPO = [0.16, 1, 0.3, 1] as const
@@ -53,7 +52,7 @@ function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ duration: 1.4, delay: 0.7 }}
-            className="absolute inset-0"
+            className="absolute inset-0 opacity-55 md:opacity-100"
           >
             <DataAthlete className="h-full w-full" />
           </m.div>
@@ -142,7 +141,6 @@ function App() {
           </footer>
         </section>
 
-        <VariantSwitcher />
       </LazyMotion>
     </MotionConfig>
   )

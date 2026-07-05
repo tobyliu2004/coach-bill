@@ -13,8 +13,6 @@
 
   --color-amber-glow: oklch(0.817 0.164 75.8); /* #FFB224 */
   --color-ember: oklch(0.704 0.195 40.9); /* #FF6B2C — large type/CTA only */
-  --color-volt: oklch(0.894 0.22 127.2); /* #B4F52D */
-  --color-volt-deep: oklch(0.83 0.2 128); /* pressed/hover volt */
   --color-ice: oklch(0.828 0.101 230.3); /* future sleep/recovery data */
 
   /* --- type scale (display sizes carry their own tracking — never override) */
@@ -42,7 +40,6 @@
 /* ----------------------------------------------------------------------------
    Semantic layer — colors/fonts by ROLE. Components use these, never raw inks.
    Dark is the brand (dark-only). Light mode later = a second block like this.
-   The data-font / data-accent attributes are the temporary comparison switcher.
    ---------------------------------------------------------------------------- */
 :root {
   --bg: var(--color-ink-950);
@@ -62,19 +59,6 @@
   --display-width: 125%; /* Archivo's wide axis — the "athletic" stance */
 
   color-scheme: dark;
-}
-
-:root[data-accent='volt'] {
-  --accent: var(--color-volt);
-  --accent-hot: var(--color-volt-deep);
-  --accent-ink: oklch(0.2 0.04 128);
-}
-
-:root[data-font='geist'] {
-  --display-font: 'Geist Variable', system-ui, sans-serif;
-  --body-font: 'Geist Variable', system-ui, sans-serif;
-  --data-font: 'Geist Mono Variable', ui-monospace, monospace;
-  --display-width: 100%; /* Geist has no width axis */
 }
 
 /* Map semantic tokens to utilities: bg-bg, bg-surface, text-fg, text-fg-muted,
