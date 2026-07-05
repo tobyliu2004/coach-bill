@@ -2,11 +2,15 @@ import { useEffect, useRef } from 'react'
 import { useReducedMotion } from 'motion/react'
 // Sources (Pexels License — free commercial use, no attribution):
 // squat: pexels.com/photo/9602276 · deadlift: pexels.com/photo/1552103
-// press: pexels.com/photo/1552101
+// press: pexels.com/photo/1552101 · bench: pexels.com/photo/3837757
+// run: pexels.com/photo/13381063 · swim: pexels.com/photo/36755690
 // Requirement for any future pose photo: lit subject on a dark background.
 import squatUrl from '../assets/poses/squat.jpg'
 import deadliftUrl from '../assets/poses/deadlift.jpg'
 import pressUrl from '../assets/poses/press.jpg'
+import benchUrl from '../assets/poses/bench.jpg'
+import runUrl from '../assets/poses/run.jpg'
+import swimUrl from '../assets/poses/swim.jpg'
 
 /**
  * The signature element, meuze-grade: a life-size athlete rendered as dense
@@ -18,14 +22,14 @@ import pressUrl from '../assets/poses/press.jpg'
 
 /** Brightness ramp: dim pixels get faint glyphs, highlights get dense ones. */
 const GLYPHS = '·:+×147358#@'
-// Strongest figure greets first; overhead lockout is the finale.
-const POSE_URLS = [deadliftUrl, squatUrl, pressUrl]
-const SCENE_MS = 5600
-const ASSEMBLE_END = 0.22
-const HOLD_END = 0.76
+// Strongest figure greets first; iron → engine (run, swim) → lockout finale.
+const POSE_URLS = [deadliftUrl, benchUrl, squatUrl, runUrl, swimUrl, pressUrl]
+const SCENE_MS = 6000
+const ASSEMBLE_END = 0.26 // longer gather — softer arrival
+const HOLD_END = 0.72 // longer release — softer departure
 const MAX_FIGURE_POINTS = 15000
-/** Dev-only: ?scene=deadlift|squat|press freezes that scene mid-hold. */
-const SCENE_NAMES = ['deadlift', 'squat', 'press'] as const
+/** Dev-only: ?scene=<name> freezes that scene mid-hold. */
+const SCENE_NAMES = ['deadlift', 'bench', 'squat', 'run', 'swim', 'press'] as const
 function frozenSceneIndex(): number | null {
   const name = new URLSearchParams(window.location.search).get('scene')
   const ix = SCENE_NAMES.indexOf(name as (typeof SCENE_NAMES)[number])
@@ -472,7 +476,7 @@ export function DataAthlete({ className }: { className?: string }) {
         if (target) {
           const aIn = smoothstep((local - p.order * ASSEMBLE_END * 0.45) / (ASSEMBLE_END * 0.55))
           const releaseSpan = 1 - HOLD_END
-          const rOut = smoothstep((local - HOLD_END - p.order * releaseSpan * 0.35) / (releaseSpan * 0.5))
+          const rOut = smoothstep((local - HOLD_END - p.order * releaseSpan * 0.4) / (releaseSpan * 0.6))
           attract = aIn * (1 - rOut)
           gust = Math.sin(Math.min(1, rOut) * Math.PI)
           // Edges shimmer loose even while the pose holds — gently.
@@ -487,8 +491,8 @@ export function DataAthlete({ className }: { className?: string }) {
         let x = wx + ((target?.x ?? wx) - wx) * attract
         let y = wy + ((target?.y ?? wy) - wy) * attract
         if (gust > 0) {
-          x += gust * width * 0.07 * (0.4 + p.order)
-          y += gust * Math.sin(time / 170 + p.seed * 3) * height * 0.05
+          x += gust * width * 0.055 * (0.4 + p.order)
+          y += gust * Math.sin(time / 240 + p.seed * 3) * height * 0.04
         }
 
         // Glyph = brightness: the ramp renders the photograph. A slow ±1

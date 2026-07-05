@@ -10,8 +10,8 @@ import * as m from 'motion/react-m'
  * via MotionValues; React never re-renders during scroll.
  */
 
-const TRANSCRIPT = '“Bench three by eight at one-thirty-five… slept six hours, knee felt tweaky.”'
-const REPLY = 'Third week at 135 — Friday we try 140. Easy on the knee today: I remember last time.'
+const TRANSCRIPT = '“Hey Coach, here’s my numbers for the day — bench one-thirty-five, military press one-oh-five, squats two-twenty-five…”'
+const REPLY = 'Logged. Bench moved fast today — we go 140 next session. Press is stalling at 105, so Friday we add a back-off set. Squats looked strong.'
 
 const BEATS = [
   { n: '01', label: 'speak' },
@@ -20,9 +20,9 @@ const BEATS = [
 ] as const
 
 const ROWS = [
-  { label: 'bench press', value: (t: number) => `3×8 @ ${Math.round(135 * t)} lb` },
-  { label: 'sleep', value: (t: number) => `${(6 * t).toFixed(1)} h` },
-  { label: 'note', value: () => '“knee felt tweaky” → remembered' },
+  { label: 'bench press', value: (t: number) => `${Math.round(135 * t)} lb · 4×8` },
+  { label: 'military press', value: (t: number) => `${Math.round(105 * t)} lb · 3×6` },
+  { label: 'squat', value: (t: number) => `${Math.round(225 * t)} lb · 5×5` },
 ] as const
 
 function clamp01(v: number): number {

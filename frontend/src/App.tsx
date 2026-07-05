@@ -42,7 +42,7 @@ function App() {
             className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4"
           >
             <span className="font-display text-lg font-semibold tracking-tight text-fg">Coach Bill</span>
-            <span className="font-mono text-xs tracking-wider text-fg-muted uppercase">Private beta</span>
+            <span className="font-mono text-xs tracking-wider text-fg-muted uppercase">First month free</span>
           </m.div>
         </header>
 
@@ -87,10 +87,10 @@ function App() {
               className="mt-8 flex flex-col gap-6 md:flex-row md:items-center md:gap-10"
             >
               <a
-                href="mailto:tobyliu2004@gmail.com?subject=Coach%20Bill%20early%20access"
+                href="#signup"
                 className="inline-block w-fit rounded-control bg-accent px-5 py-2.5 text-sm font-semibold text-accent-ink transition-transform duration-150 ease-out-expo hover:scale-[1.02] active:scale-[0.98]"
               >
-                Get early access
+                Start your free month
               </a>
               <p className="max-w-md text-base leading-relaxed text-fg-muted">
                 Say your check-in out loud. Bill logs it, tracks it, and coaches you like
@@ -109,18 +109,30 @@ function App() {
         {/* ---- Chapter: 01 speak → 02 logged → 03 coached ---- */}
         <CheckInChapter />
 
-        {/* ---- End cap ---- */}
-        <section className="relative">
+        {/* ---- End cap: free-trial signup (wired for real in the Auth issue) ---- */}
+        <section id="signup" className="relative">
           <div className="mx-auto flex w-full max-w-6xl flex-col items-start gap-6 px-6 py-28">
             <h2 className="font-display text-display-sm text-balance text-fg">
-              Thirty users this summer. Then we close the door.
+              Your first month is free.
             </h2>
-            <a
-              href="mailto:tobyliu2004@gmail.com?subject=Coach%20Bill%20early%20access"
-              className="inline-block rounded-control bg-accent px-5 py-2.5 text-sm font-semibold text-accent-ink transition-transform duration-150 ease-out-expo hover:scale-[1.02] active:scale-[0.98]"
-            >
-              Get early access
-            </a>
+            <p className="max-w-md text-base leading-relaxed text-fg-muted">
+              No card, no catch — talk to Bill for a month and see what a coach with a
+              perfect memory feels like.
+            </p>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <a
+                href="#signup"
+                className="inline-block rounded-control bg-accent px-5 py-2.5 text-center text-sm font-semibold text-accent-ink transition-transform duration-150 ease-out-expo hover:scale-[1.02] active:scale-[0.98]"
+              >
+                Start free month
+              </a>
+              <a
+                href="#signup"
+                className="inline-block rounded-control border border-edge-strong px-5 py-2.5 text-center text-sm font-semibold text-fg transition-colors duration-150 hover:border-fg-muted"
+              >
+                Continue with Google
+              </a>
+            </div>
           </div>
           <footer className="border-t border-edge">
             <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
