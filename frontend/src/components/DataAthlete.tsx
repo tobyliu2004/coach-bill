@@ -2,9 +2,11 @@ import { useEffect, useRef } from 'react'
 import { useReducedMotion } from 'motion/react'
 // Sources (Pexels License — free commercial use, no attribution):
 // squat: pexels.com/photo/9602276 · deadlift: pexels.com/photo/1552103
+// press: pexels.com/photo/1552101
 // Requirement for any future pose photo: lit subject on a dark background.
 import squatUrl from '../assets/poses/squat.jpg'
 import deadliftUrl from '../assets/poses/deadlift.jpg'
+import pressUrl from '../assets/poses/press.jpg'
 
 /**
  * The signature element, meuze-grade: a life-size athlete rendered as dense
@@ -16,13 +18,14 @@ import deadliftUrl from '../assets/poses/deadlift.jpg'
 
 /** Brightness ramp: dim pixels get faint glyphs, highlights get dense ones. */
 const GLYPHS = '·:+×147358#@'
-const POSE_URLS = [deadliftUrl, squatUrl] // strongest figure greets first
+// Strongest figure greets first; overhead lockout is the finale.
+const POSE_URLS = [deadliftUrl, squatUrl, pressUrl]
 const SCENE_MS = 5600
 const ASSEMBLE_END = 0.22
 const HOLD_END = 0.76
 const MAX_FIGURE_POINTS = 15000
-/** Dev-only: ?scene=deadlift|squat freezes that scene mid-hold. */
-const SCENE_NAMES = ['deadlift', 'squat'] as const
+/** Dev-only: ?scene=deadlift|squat|press freezes that scene mid-hold. */
+const SCENE_NAMES = ['deadlift', 'squat', 'press'] as const
 function frozenSceneIndex(): number | null {
   const name = new URLSearchParams(window.location.search).get('scene')
   const ix = SCENE_NAMES.indexOf(name as (typeof SCENE_NAMES)[number])
