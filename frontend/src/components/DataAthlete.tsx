@@ -16,13 +16,13 @@ import deadliftUrl from '../assets/poses/deadlift.jpg'
 
 /** Brightness ramp: dim pixels get faint glyphs, highlights get dense ones. */
 const GLYPHS = '·:+×147358#@'
-const POSE_URLS = [squatUrl, deadliftUrl]
+const POSE_URLS = [deadliftUrl, squatUrl] // strongest figure greets first
 const SCENE_MS = 5600
 const ASSEMBLE_END = 0.22
 const HOLD_END = 0.76
-const MAX_FIGURE_POINTS = 9000
-/** Dev-only: ?scene=squat|deadlift freezes that scene mid-hold. */
-const SCENE_NAMES = ['squat', 'deadlift'] as const
+const MAX_FIGURE_POINTS = 15000
+/** Dev-only: ?scene=deadlift|squat freezes that scene mid-hold. */
+const SCENE_NAMES = ['deadlift', 'squat'] as const
 function frozenSceneIndex(): number | null {
   const name = new URLSearchParams(window.location.search).get('scene')
   const ix = SCENE_NAMES.indexOf(name as (typeof SCENE_NAMES)[number])
@@ -260,10 +260,26 @@ function imageTargets(
       if (neighbors < 2) continue
       const edge =
         !inside(x - col * 2, y) || !inside(x + col * 2, y) || !inside(x, y - row * 2) || !inside(x, y + row * 2)
-      // Gamma-lift the midtones: shadow detail must still print glyphs.
+      // Neighborhood-averaged luminance (kills JPEG grain → smooth tones),
+      // then gamma-lift the midtones so shadow detail still prints glyphs.
+      let lumSum = lumAt((y * w + x) * 4)
+      let lumN = 1
+      for (const [ox, oy] of [
+        [-2, 0],
+        [2, 0],
+        [0, -2],
+        [0, 2],
+      ] as const) {
+        const nx = x + ox
+        const ny = y + oy
+        if (nx >= 0 && ny >= 0 && nx < w && ny < h && hit(nx, ny)) {
+          lumSum += lumAt((ny * w + nx) * 4)
+          lumN++
+        }
+      }
       const shade = isCutout
         ? 0.55 + Math.random() * 0.35
-        : Math.pow(clamp01((lumAt((y * w + x) * 4) - loLum) / (hiLum - loLum)), 0.55)
+        : Math.pow(clamp01((lumSum / lumN - loLum) / (hiLum - loLum)), 0.6)
       points.push({ x: box.x + x, y: box.y + y, edge, shade })
     }
   }
@@ -340,11 +356,11 @@ export function DataAthlete({ className }: { className?: string }) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
       const mobile = width < 768
-      glyphSize = mobile ? 6 : 7
+      glyphSize = mobile ? 5 : 6
       // Tight columns, near-touching rows: the scanline texture that lets a
       // photograph read through the characters.
-      const colStep = glyphSize * 0.58
-      const rowStep = glyphSize * 0.94
+      const colStep = glyphSize * 0.55
+      const rowStep = glyphSize * 0.88
 
       // The athlete: life-size, right of center on desktop, centered on mobile.
       const figH = height * 0.9
@@ -395,7 +411,7 @@ export function DataAthlete({ className }: { className?: string }) {
         frozen !== null
           ? (Math.min(frozen, sceneCount - 1) + (ASSEMBLE_END + HOLD_END) / 2) / sceneCount
           : reduced
-            ? (sceneCount - 1 + (ASSEMBLE_END + HOLD_END) / 2) / sceneCount
+            ? ((ASSEMBLE_END + HOLD_END) / 2) / sceneCount // static: first pose
             : (time % (SCENE_MS * sceneCount)) / (SCENE_MS * sceneCount)
       const sceneIx = Math.min(sceneCount - 1, Math.floor(cycle * sceneCount))
       const local = cycle * sceneCount - sceneIx
@@ -414,9 +430,9 @@ export function DataAthlete({ className }: { className?: string }) {
           const rOut = smoothstep((local - HOLD_END - p.order * releaseSpan * 0.35) / (releaseSpan * 0.5))
           attract = aIn * (1 - rOut)
           gust = Math.sin(Math.min(1, rOut) * Math.PI)
-          // Edges shimmer loose even while the pose holds.
+          // Edges shimmer loose even while the pose holds — gently.
           if (target.edge && !reduced) {
-            attract *= 0.88 + 0.12 * Math.sin(time / 300 + p.seed * 5)
+            attract *= 0.95 + 0.05 * Math.sin(time / 340 + p.seed * 5)
           }
         }
         if (reduced) gust = 0

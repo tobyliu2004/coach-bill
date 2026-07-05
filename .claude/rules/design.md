@@ -49,9 +49,11 @@ is the brand, not a mode. (Semantic tokens keep a future light theme cheap.)
   raw CSS animation on meaningful content.
 
 ## Signature moments (landing/marketing surfaces)
-- Every marketing page earns exactly ONE signature element (currently: the hero voice strip —
-  glyph particles morphing voice-waveform ⇄ ledger line in `VoiceField.tsx`). Spend all
-  boldness there; keep everything around it quiet.
+- Every marketing page earns exactly ONE signature element (currently: the data athlete —
+  real lifter photographs rendered as luminance-driven glyph scanlines in `DataAthlete.tsx`,
+  cycling lifts torn apart by wind gusts). Spend all boldness there; keep everything around
+  it quiet. Pose sources: photos with a lit subject, segmented offline (rembg), flattened
+  onto true black.
 - Scroll storytelling uses the pinned-chapter pattern (`CheckInChapter.tsx`): tall section
   (~300vh) + `sticky top-0 h-dvh` stage + scroll-progress-driven beats via Motion
   `useScroll`; per-frame updates are imperative DOM writes (MotionValues), never React
