@@ -11,6 +11,7 @@ const ProtectedRoute = lazy(() =>
 )
 const AuthCallback = lazy(() => import('./pages/AuthCallback'))
 const Onboarding = lazy(() => import('./pages/Onboarding'))
+const ResetPassword = lazy(() => import('./pages/ResetPassword'))
 const Login = lazy(() => import('./pages/Login'))
 const AppHome = lazy(() => import('./pages/AppHome'))
 
@@ -22,6 +23,7 @@ export function AppRoutes() {
         <Route element={<AuthLayout />}>
           <Route path="/login" element={<Login />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
+          <Route path="/auth/reset" element={<ResetPassword />} />
           <Route element={<ProtectedRoute />}>
             <Route path="/onboarding" element={<Onboarding />} />
             <Route path="/app" element={<AppHome />} />

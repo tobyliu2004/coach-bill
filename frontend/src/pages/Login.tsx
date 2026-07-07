@@ -37,6 +37,7 @@ function Login() {
   const [needsConfirmation, setNeedsConfirmation] = useState(false)
   const [sentTo, setSentTo] = useState<string | null>(null)
   const [resent, setResent] = useState(false)
+  const [resetSent, setResetSent] = useState(false)
 
   // Already signed in (or the moment sign-in succeeds): the state machine says where to go.
   const destination = resolveDestination(toSnapshot(auth), location.pathname)
@@ -100,6 +101,18 @@ function Login() {
       setBusy(false)
     }
     // On success the browser navigates away to Google.
+  }
+
+  async function handleForgotPassword() {
+    if (!email) {
+      setError('Enter your email above first, then tap “Forgot password?” again.')
+      return
+    }
+    setError(null)
+    await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth/reset`,
+    })
+    setResetSent(true)
   }
 
   async function handleResend(address: string) {
@@ -185,6 +198,22 @@ function Login() {
                     and nothing it says is medical advice.
                   </span>
                 </label>
+              )}
+
+              {!signup && (
+                <p className="-mt-2 text-sm">
+                  {resetSent ? (
+                    <span className="text-fg-muted">Reset link sent — check your inbox.</span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void handleForgotPassword()}
+                      className="text-fg-muted transition-colors duration-150 hover:text-fg"
+                    >
+                      Forgot password?
+                    </button>
+                  )}
+                </p>
               )}
 
               {error && <p className="text-sm text-fg-muted">{error}</p>}
