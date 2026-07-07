@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { Link } from 'react-router'
 import Lenis from 'lenis'
 import 'lenis/dist/lenis.css'
 import { useReducedMotion } from 'motion/react'
@@ -40,7 +41,17 @@ function Landing() {
           className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4"
         >
           <span className="font-display text-lg font-semibold tracking-tight text-fg">Coach Bill</span>
-          <span className="font-mono text-xs tracking-wider text-fg-muted uppercase">First month free</span>
+          <div className="flex items-center gap-5">
+            <span className="hidden font-mono text-xs tracking-wider text-fg-muted uppercase sm:inline">
+              First month free
+            </span>
+            <Link
+              to="/login"
+              className="text-sm font-semibold text-fg-muted transition-colors duration-150 hover:text-fg"
+            >
+              Log in
+            </Link>
+          </div>
         </m.div>
       </header>
 
@@ -84,12 +95,12 @@ function Landing() {
             transition={{ duration: 0.5, ease: EASE_OUT_EXPO, delay: 0.55 }}
             className="mt-8 flex flex-col gap-6 md:flex-row md:items-center md:gap-10"
           >
-            <a
-              href="#signup"
+            <Link
+              to="/login?mode=signup"
               className="inline-block w-fit rounded-control bg-accent px-5 py-2.5 text-sm font-semibold text-accent-ink transition-transform duration-150 ease-out-expo hover:scale-[1.02] active:scale-[0.98]"
             >
               Start your free month
-            </a>
+            </Link>
             <p className="max-w-md text-base leading-relaxed text-fg-muted">
               Say your check-in out loud. Bill logs it, tracks it, and coaches you like
               he&rsquo;s known you for months — because he has.
@@ -118,18 +129,18 @@ function Landing() {
             perfect memory feels like.
           </p>
           <div className="flex flex-col gap-3 sm:flex-row">
-            <a
-              href="#signup"
+            <Link
+              to="/login?mode=signup"
               className="inline-block rounded-control bg-accent px-5 py-2.5 text-center text-sm font-semibold text-accent-ink transition-transform duration-150 ease-out-expo hover:scale-[1.02] active:scale-[0.98]"
             >
               Start free month
-            </a>
-            <a
-              href="#signup"
+            </Link>
+            <Link
+              to="/login?mode=signup"
               className="inline-block rounded-control border border-edge-strong px-5 py-2.5 text-center text-sm font-semibold text-fg transition-colors duration-150 hover:border-fg-muted"
             >
               Continue with Google
-            </a>
+            </Link>
           </div>
         </div>
         <footer className="border-t border-edge">
