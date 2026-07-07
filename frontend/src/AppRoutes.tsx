@@ -9,6 +9,8 @@ const AuthLayout = lazy(() => import('./pages/AuthLayout'))
 const ProtectedRoute = lazy(() =>
   import('./auth/ProtectedRoute').then((m) => ({ default: m.ProtectedRoute })),
 )
+const AuthCallback = lazy(() => import('./pages/AuthCallback'))
+const Onboarding = lazy(() => import('./pages/Onboarding'))
 const Login = lazy(() => import('./pages/Login'))
 const AppHome = lazy(() => import('./pages/AppHome'))
 
@@ -19,7 +21,9 @@ export function AppRoutes() {
         <Route path="/" element={<Landing />} />
         <Route element={<AuthLayout />}>
           <Route path="/login" element={<Login />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
           <Route element={<ProtectedRoute />}>
+            <Route path="/onboarding" element={<Onboarding />} />
             <Route path="/app" element={<AppHome />} />
           </Route>
         </Route>
