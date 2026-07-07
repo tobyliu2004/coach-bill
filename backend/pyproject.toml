@@ -9,6 +9,7 @@ dependencies = [
     "asyncpg>=0.30",
     "pydantic>=2.10",
     "pydantic-settings>=2.7",
+    "pyjwt[crypto]>=2.10",
 ]
 
 # Not a distributable package — just an app with a managed virtualenv.
