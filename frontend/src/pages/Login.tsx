@@ -31,7 +31,6 @@ function Login() {
   const [mode, setMode] = useState<Mode>(params.get('mode') === 'signup' ? 'signup' : 'signin')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [consented, setConsented] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [needsConfirmation, setNeedsConfirmation] = useState(false)
@@ -43,8 +42,9 @@ function Login() {
   const destination = resolveDestination(toSnapshot(auth), location.pathname)
   if (destination) return <Navigate to={destination} replace />
 
+  // The not-medical-advice consent lives on the Onboarding screen — the one place every
+  // account (email or Google, either entry mode) must pass before reaching /app.
   const signup = mode === 'signup'
-  const consentMissing = signup && !consented
 
   function switchMode(next: Mode) {
     setMode(next)
@@ -185,21 +185,6 @@ function Login() {
                 />
               </label>
 
-              {signup && (
-                <label className="flex items-start gap-2.5 text-sm leading-relaxed text-fg-muted">
-                  <input
-                    type="checkbox"
-                    checked={consented}
-                    onChange={(e) => setConsented(e.target.checked)}
-                    className="mt-1 accent-accent"
-                  />
-                  <span>
-                    I understand Coach Bill is an AI training log and coach — not a doctor,
-                    and nothing it says is medical advice.
-                  </span>
-                </label>
-              )}
-
               {!signup && (
                 <p className="-mt-2 text-sm">
                   {resetSent ? (
@@ -233,7 +218,7 @@ function Login() {
                 </div>
               )}
 
-              <button type="submit" disabled={busy || consentMissing} className={primaryButtonClasses}>
+              <button type="submit" disabled={busy} className={primaryButtonClasses}>
                 {busy ? 'One moment…' : signup ? 'Create account' : 'Sign in'}
               </button>
 
@@ -246,16 +231,11 @@ function Login() {
               <button
                 type="button"
                 onClick={() => void handleGoogle()}
-                disabled={busy || consentMissing}
+                disabled={busy}
                 className={secondaryButtonClasses}
               >
                 Continue with Google
               </button>
-              {consentMissing && (
-                <p className="text-sm text-fg-muted">
-                  Tick the box above first — it applies to Google sign-ups too.
-                </p>
-              )}
             </form>
           )}
         </div>

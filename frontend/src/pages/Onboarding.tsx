@@ -19,6 +19,7 @@ function Onboarding() {
   const [displayName, setDisplayName] = useState('')
   const [goal, setGoal] = useState('')
   const [weightUnit, setWeightUnit] = useState<'lb' | 'kg'>('lb')
+  const [consented, setConsented] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(false)
 
@@ -33,7 +34,9 @@ function Onboarding() {
         weight_unit: weightUnit,
         // The browser knows the IANA zone; check-ins need it for "today".
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        consent: true,
+        // Only ever true here — the checkbox below gates the submit, so consented_at
+        // is stamped strictly after the disclaimer was seen and acknowledged.
+        consent: consented,
       })
       // Context refresh flips onboarded -> true; the route guard moves us to /app.
       await auth.refreshProfile()
@@ -129,13 +132,26 @@ function Onboarding() {
             </div>
           </div>
 
+          <label className="flex items-start gap-2.5 text-sm leading-relaxed text-fg-muted">
+            <input
+              type="checkbox"
+              checked={consented}
+              onChange={(e) => setConsented(e.target.checked)}
+              className="mt-1 accent-accent"
+            />
+            <span>
+              I understand Coach Bill is an AI training log and coach — not a doctor, and
+              nothing it says is medical advice.
+            </span>
+          </label>
+
           {error && (
             <p className="text-sm text-fg-muted">That didn&rsquo;t save — try again.</p>
           )}
 
           <button
             type="submit"
-            disabled={busy || goal.trim().length < 3}
+            disabled={busy || goal.trim().length < 3 || !consented}
             className="w-full rounded-control bg-accent px-5 py-2.5 text-sm font-semibold text-accent-ink transition-transform duration-150 ease-out-expo hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:hover:scale-100"
           >
             {busy ? 'Saving…' : 'Meet your coach'}
