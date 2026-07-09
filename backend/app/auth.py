@@ -61,7 +61,10 @@ def get_current_user_id(credentials: _CredentialsDep, jwks: JWKSDep) -> UUID:
             # Pinned server-side — the token's own alg header is attacker-controlled.
             algorithms=["ES256"],
             audience="authenticated",
-            options={"require": ["exp", "sub", "aud"]},
+            # Issuer check is defense-in-depth: a token signed by a *different* Supabase
+            # project's keys can't validate anyway, but this closes cross-env reuse cheaply.
+            issuer=f"{get_settings().supabase_url}/auth/v1",
+            options={"require": ["exp", "sub", "aud", "iss"]},
         )
         return UUID(claims["sub"])
     except (jwt.PyJWTError, jwt.exceptions.PyJWKClientError, ValueError) as exc:

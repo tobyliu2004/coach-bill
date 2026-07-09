@@ -7,6 +7,10 @@ public key — exercising the full verification path (signature, expiry, audienc
 pinning) with no network.
 """
 
+import base64
+import hashlib
+import hmac
+import json
 import time
 import uuid
 from types import SimpleNamespace
@@ -15,11 +19,15 @@ from typing import Any
 import jwt
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.ec import EllipticCurvePrivateKey
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 from fastapi import APIRouter
 from httpx import AsyncClient
 
 from app.auth import UserIdDep, get_jwks_client
 from app.main import app
+
+# Must match the SUPABASE_URL conftest.py sets before the app imports.
+_ISSUER = "https://test.supabase.co/auth/v1"
 
 # --- test keypair + a throwaway route protected by the dependency under test ---
 
@@ -52,17 +60,44 @@ def _make_token(
     *,
     sub: str | None = None,
     aud: str = "authenticated",
+    iss: str = _ISSUER,
     expires_in: int = 3600,
-    algorithm: str = "ES256",
     key: Any = _PRIVATE_KEY,
 ) -> str:
     claims: dict[str, Any] = {
         "aud": aud,
+        "iss": iss,
         "exp": int(time.time()) + expires_in,
         "sub": sub if sub is not None else str(uuid.uuid4()),
     }
-    token: str = jwt.encode(claims, key, algorithm=algorithm)
+    token: str = jwt.encode(claims, key, algorithm="ES256")
     return token
+
+
+def _forge_hs256_with_public_key() -> str:
+    """The classic algorithm-confusion forgery: an attacker takes the server's *public*
+    key (it's published in the JWKS) and uses it as an HMAC secret to sign an HS256
+    token, hoping the server verifies HMAC with the same key material. Hand-rolled
+    because PyJWT itself refuses to HS-sign with key material that looks like a PEM."""
+    pem = _PUBLIC_KEY.public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo)
+
+    def b64(data: bytes) -> bytes:
+        return base64.urlsafe_b64encode(data).rstrip(b"=")
+
+    header = b64(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
+    payload = b64(
+        json.dumps(
+            {
+                "aud": "authenticated",
+                "iss": _ISSUER,
+                "exp": int(time.time()) + 3600,
+                "sub": str(uuid.uuid4()),
+            }
+        ).encode()
+    )
+    signing_input = header + b"." + payload
+    signature = b64(hmac.new(pem, signing_input, hashlib.sha256).digest())
+    return (signing_input + b"." + signature).decode()
 
 
 # --- behavior ---
@@ -102,14 +137,26 @@ async def test_expired_token_is_401(client: AsyncClient) -> None:
     assert resp.status_code == 401
 
 
-async def test_hs256_token_is_rejected(client: AsyncClient) -> None:
-    """Algorithm-confusion attack: a token signed with HS256 must never verify, even if
-    an attacker crafts it hoping the server treats the public key as an HMAC secret."""
+async def test_alg_confusion_forgery_is_rejected(client: AsyncClient) -> None:
+    """A token HMAC-signed with the server's own public key (the real attack — the
+    public key is, by definition, public) must be rejected by the ES256 allowlist."""
     _use_fake_jwks()
-    forged = _make_token(algorithm="HS256", key="attacker-known-secret-32-bytes-or-more!!")
 
     resp = await client.get(
-        "/test-auth/whoami", headers={"Authorization": f"Bearer {forged}"}
+        "/test-auth/whoami",
+        headers={"Authorization": f"Bearer {_forge_hs256_with_public_key()}"},
+    )
+
+    assert resp.status_code == 401
+
+
+async def test_wrong_issuer_is_401(client: AsyncClient) -> None:
+    """A validly-signed token from a different Supabase project/environment must bounce."""
+    _use_fake_jwks()
+
+    resp = await client.get(
+        "/test-auth/whoami",
+        headers={"Authorization": f"Bearer {_make_token(iss='https://evil.example/auth/v1')}"},
     )
 
     assert resp.status_code == 401
