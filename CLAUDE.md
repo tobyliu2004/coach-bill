@@ -57,3 +57,10 @@ Frontend (run from `frontend/`):
 - Run migrations or writes against production data directly.
 - Change Supabase Auth config or applied migrations without flagging it first.
 - Push directly to `main` — always go through a PR.
+
+## PR review protocol (expands step 5 of the feature loop)
+Before Toby is asked to merge any PR: run `project-reviewer` and `cold-reviewer`
+(.claude/agents/ — briefed vs deliberately unbriefed) **independently — never share one's
+findings with the other**; reconcile both reports and fix what's real; then Toby rules on
+the judgment calls and deep-dives ONE load-bearing file with Claude (learning goal); then
+he says merge.
