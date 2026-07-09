@@ -15,8 +15,11 @@ function AuthCallback() {
   const [params] = useSearchParams()
   const [timedOut, setTimedOut] = useState(false)
 
-  // e.g. expired or already-used links: Supabase redirects with error params.
-  const linkError = params.get('error_description')
+  // e.g. expired or already-used links: Supabase redirects with error params — usually
+  // in the query string, but some flows deliver them in the URL fragment instead.
+  const linkError =
+    params.get('error_description') ??
+    new URLSearchParams(window.location.hash.slice(1)).get('error_description')
 
   useEffect(() => {
     const timer = setTimeout(() => setTimedOut(true), 6000)
