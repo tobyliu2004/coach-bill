@@ -59,18 +59,8 @@ Frontend (run from `frontend/`):
 - Push directly to `main` — always go through a PR.
 
 ## PR review protocol (expands step 5 of the feature loop)
-Every PR, before Toby is asked to merge:
-1. **Build** — small commits, tests-first where required, all gates green.
-2. **Two agent reviews, run independently — they never see each other's findings first**
-   (independence is the value; cross-talk anchors them):
-   - `project-reviewer` (.claude/agents/) — briefed: reads CLAUDE.md, PLAN.md,
-     PROGRESS.md, .claude/rules/ before the diff. Enforces our conventions.
-   - `cold-reviewer` (.claude/agents/) — deliberately unbriefed: judges purely from the
-     code, like an engineer who just joined. Catches familiarity blind spots.
-3. **Reconcile** — merge both findings lists into one plain-English report; fix what's
-   real; where the reviewers disagree, verify adversarially before deciding.
-4. **Toby's review** — two parts, both required:
-   - rule on the judgment calls (product/UX/scope decisions surfaced by the reviews);
-   - **deep-dive ONE file** from the PR with Claude, line by line, until he could explain
-     it to someone else (learning goal — pick the most load-bearing file).
-5. Toby says merge → merge via `gh`, CI deploys.
+Before Toby is asked to merge any PR: run `project-reviewer` and `cold-reviewer`
+(.claude/agents/ — briefed vs deliberately unbriefed) **independently — never share one's
+findings with the other**; reconcile both reports and fix what's real; then Toby rules on
+the judgment calls and deep-dives ONE load-bearing file with Claude (learning goal); then
+he says merge.
