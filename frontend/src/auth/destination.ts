@@ -15,6 +15,29 @@ export interface AuthSnapshot {
 
 const PROTECTED_PATHS = ['/app', '/onboarding']
 
+/** The profile fields the gate reads (structural so this module stays react-free). */
+export interface ProfileGate {
+  goal: string | null
+  consented_at: string | null
+}
+
+/**
+ * Onboarding is complete only when BOTH the goal is set and consent is recorded —
+ * "in the app ⇒ consented" is enforced here, where the gate reads, not just by the
+ * onboarding form that happens to write both today.
+ */
+export function toSnapshot(auth: {
+  status: AuthStatus
+  profile: ProfileGate | null
+}): AuthSnapshot {
+  return {
+    status: auth.status,
+    onboarded: auth.profile
+      ? auth.profile.goal !== null && auth.profile.consented_at !== null
+      : null,
+  }
+}
+
 /** Where the user must be sent, or null to stay put. */
 export function resolveDestination(auth: AuthSnapshot, path: string): string | null {
   // Nothing is known yet — never redirect on a guess.

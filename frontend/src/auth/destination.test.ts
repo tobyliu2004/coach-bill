@@ -6,7 +6,7 @@
  * auth UI (loops, flashes, dead ends).
  */
 import { describe, expect, it } from 'vitest'
-import { resolveDestination, type AuthSnapshot } from './destination'
+import { resolveDestination, toSnapshot, type AuthSnapshot } from './destination'
 
 const loading: AuthSnapshot = { status: 'loading', onboarded: null }
 const signedOut: AuthSnapshot = { status: 'signedOut', onboarded: null }
@@ -56,6 +56,24 @@ describe('signed in, not yet onboarded (goal unset)', () => {
   it('may still use the password-reset page', () => {
     // A recovery-link session must be able to set a new password before anything else.
     expect(resolveDestination(fresh, '/auth/reset')).toBeNull()
+  })
+})
+
+describe('toSnapshot — what counts as onboarded', () => {
+  it('requires BOTH a goal and recorded consent', () => {
+    const base = { status: 'signedIn' as const }
+    const snap = (goal: string | null, consented_at: string | null) =>
+      toSnapshot({ ...base, profile: { goal, consented_at } }).onboarded
+
+    expect(snap('cut to 175', '2026-07-08T00:00:00Z')).toBe(true)
+    // A goal without recorded consent must NOT open the app.
+    expect(snap('cut to 175', null)).toBe(false)
+    expect(snap(null, '2026-07-08T00:00:00Z')).toBe(false)
+    expect(snap(null, null)).toBe(false)
+  })
+
+  it('is unknown (null) while the profile has not loaded', () => {
+    expect(toSnapshot({ status: 'signedIn', profile: null }).onboarded).toBeNull()
   })
 })
 

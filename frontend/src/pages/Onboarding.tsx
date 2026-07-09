@@ -146,7 +146,9 @@ function Onboarding() {
           </label>
 
           {error && (
-            <p className="text-sm text-fg-muted">That didn&rsquo;t save — try again.</p>
+            <p role="alert" className="text-sm text-fg-muted">
+              That didn&rsquo;t save — try again.
+            </p>
           )}
 
           <button

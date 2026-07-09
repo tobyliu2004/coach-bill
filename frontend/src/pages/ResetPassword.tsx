@@ -79,7 +79,11 @@ function ResetPassword() {
               className={inputClasses}
             />
           </label>
-          {error && <p className="text-sm text-fg-muted">{error}</p>}
+          {error && (
+            <p role="alert" className="text-sm text-fg-muted">
+              {error}
+            </p>
+          )}
           <button
             type="submit"
             disabled={busy}

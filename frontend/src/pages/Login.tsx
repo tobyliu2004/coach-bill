@@ -104,25 +104,42 @@ function Login() {
   }
 
   async function handleForgotPassword() {
+    if (busy) return
     if (!email) {
       setError('Enter your email above first, then tap “Forgot password?” again.')
       return
     }
     setError(null)
-    await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/reset`,
-    })
-    setResetSent(true)
+    setBusy(true)
+    try {
+      await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/auth/reset`,
+      })
+      setResetSent(true)
+    } catch {
+      setError('Couldn’t send the reset email — try again in a moment.')
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function handleResend(address: string) {
+    if (busy) return
     setResent(false)
-    await supabase.auth.resend({
-      type: 'signup',
-      email: address,
-      options: { emailRedirectTo: callbackUrl() },
-    })
-    setResent(true)
+    setError(null)
+    setBusy(true)
+    try {
+      await supabase.auth.resend({
+        type: 'signup',
+        email: address,
+        options: { emailRedirectTo: callbackUrl() },
+      })
+      setResent(true)
+    } catch {
+      setError('Couldn’t resend — wait a moment and try again.')
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -140,9 +157,15 @@ function Login() {
                 We sent a sign-in link to <span className="font-mono text-fg">{sentTo}</span>.
                 Click it to verify your email — the tab you land in will take it from there.
               </p>
+              {error && (
+                <p role="alert" className="text-sm text-fg-muted">
+                  {error}
+                </p>
+              )}
               <button
                 type="button"
                 onClick={() => void handleResend(sentTo)}
+                disabled={busy}
                 className={secondaryButtonClasses}
               >
                 {resent ? 'Sent again — check spam too' : 'Resend the link'}
@@ -201,7 +224,11 @@ function Login() {
                 </p>
               )}
 
-              {error && <p className="text-sm text-fg-muted">{error}</p>}
+              {error && (
+                <p role="alert" className="text-sm text-fg-muted">
+                  {error}
+                </p>
+              )}
 
               {needsConfirmation && (
                 <div className="flex flex-col gap-2">
@@ -211,6 +238,7 @@ function Login() {
                   <button
                     type="button"
                     onClick={() => void handleResend(email)}
+                    disabled={busy}
                     className={secondaryButtonClasses}
                   >
                     {resent ? 'Sent — check spam too' : 'Resend the verification link'}
