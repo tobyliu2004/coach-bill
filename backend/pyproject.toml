@@ -9,6 +9,10 @@ dependencies = [
     "asyncpg>=0.30",
     "pydantic>=2.10",
     "pydantic-settings>=2.7",
+    "pyjwt[crypto]>=2.10",
+    # Vendored IANA tz database: zoneinfo must not depend on the OS image shipping one
+    # (slim containers don't) — timezone validation would 422 for every valid zone.
+    "tzdata>=2025.1",
 ]
 
 # Not a distributable package — just an app with a managed virtualenv.

@@ -10,8 +10,8 @@ import os
 import pytest
 from httpx import AsyncClient
 
+from app.deps import get_pool
 from app.main import app
-from app.routes.health import get_pool
 
 # --- a minimal fake asyncpg pool: `async with pool.acquire() as conn: await conn.execute(...)`
 

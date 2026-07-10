@@ -1,25 +1,16 @@
 """Health-check HTTP routes. Routes call services; they never touch the db directly."""
 
 import logging
-from typing import Annotated
 
-import asyncpg
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Response, status
 
+from app.deps import PoolDep
 from app.schemas.health import HealthStatus
 from app.services.health import check_db
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-def get_pool(request: Request) -> asyncpg.Pool:
-    """Dependency: hand the route the pool created at startup (see the app lifespan)."""
-    return request.app.state.pool
-
-
-PoolDep = Annotated[asyncpg.Pool, Depends(get_pool)]
 
 
 @router.get("/health/db", response_model=HealthStatus)

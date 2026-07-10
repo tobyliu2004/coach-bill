@@ -15,6 +15,7 @@ from httpx import ASGITransport, AsyncClient
 if os.environ.get("DATABASE_URL"):
     os.environ["HAS_REAL_DB"] = "1"
 os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost:5432/test")
+os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
 
 
 @pytest.fixture

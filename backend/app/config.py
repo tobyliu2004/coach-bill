@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     # Supabase Postgres connection string (Session pooler URI). Required.
     database_url: str
 
+    # Supabase project URL (https://<ref>.supabase.co) — where the JWKS endpoint lives,
+    # so the backend can verify access tokens without holding any signing secret. Required.
+    supabase_url: str
+
     # Allowed browser origins for CORS. Given in .env as a comma-separated string;
     # NoDecode stops pydantic-settings from trying to JSON-parse it first.
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]

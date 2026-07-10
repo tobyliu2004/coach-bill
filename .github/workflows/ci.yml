@@ -74,6 +74,8 @@ jobs:
         run: npm run build
       - name: Lint
         run: npm run lint
+      - name: Tests
+        run: npm test
 
   # The single required check. Green only when everything that needed to run succeeded.
   ci-ok:
