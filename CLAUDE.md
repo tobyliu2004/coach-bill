@@ -20,26 +20,45 @@ confirm back where we are and what's next before touching anything.
 ## How we work — the feature loop
 For every non-trivial feature, in order:
 1. Open a GitHub issue (what / why / acceptance criteria); get scope approved.
-2. Plan mode: explore + write a plan; get approval BEFORE writing code.
-3. Build in a fresh session. Tests-first for anything touching data, auth, or the AI pipeline.
+2. **`/feature <issue#>`** — loads the issue + docs + real code, restates the goal, hands off to
+   plan mode. Approval BEFORE any code; accept "clear context" so the build starts fresh.
+3. Build from the plan. Tests-first for anything touching data, auth, or the AI pipeline.
 4. Small, one-concern commits (Conventional Commits: `feat:` / `fix:` / `chore:`).
-5. Fresh-subagent code review, then a human diff review, before merging to `main`.
-6. PR → merge → CI deploys → log progress → `/clear` → next issue.
+5. **`/ship`** — verify with evidence → both reviewers independently → Toby's diff review → PR.
+6. Merge → CI deploys → log progress → `/clear` → next issue.
 
 Rule of thumb: if you could describe the diff in one sentence, skip the plan.
 
 ## Conventions
-- Types are mandatory: TS `strict`, no `any`; Python fully typed; Pydantic for every API and
-  AI-extraction shape. A failing type-check blocks the commit.
+- Types are mandatory: TS `strict`, mypy strict, Pydantic for every API and AI-extraction shape.
+  A failing type-check blocks the commit. **No `any`/`Any`** — strict mode does *not* ban an
+  explicit one, so that rule is enforced by review, not by the checker.
 - Backend layering: routes → services → db. Only `db/` touches Supabase; never query the
   database from a route handler.
 - Tests: write from intended behavior, never from code just written. Never delete or weaken a
   test to make it pass.
 
+## Non-negotiables (always in context — the detail lives in `.claude/rules/`)
+- **The backend connects as a role that BYPASSES RLS.** The JWT-verified user id (`UserIdDep`)
+  is the only thing isolating users. **Every id from the client is untrusted** — reads, updates
+  and deletes of a client-named row filter on `user_id` *in the same statement*; every INSERT
+  sets `user_id` from `UserIdDep`. Someone else's row is a 404. (`backend.md`)
+- **Every new table:** `user_id` → `auth.users`, RLS on, owner-only policy, NOT NULL + CHECKs.
+  The one ownerless table is `exercises` (shared catalog, no user data). (`schema.md`)
+- **Dark-only, one accent (amber), two text colors, three surfaces, two radii.** No purple
+  gradients, no glassmorphism, no icon-card rows, no emoji. (`design.md`)
+
+## Deep rules (`.claude/rules/` — auto-load when you touch matching files)
+`backend.md` (backend/**) · `schema.md` (migrations, `db/`) · `design.md` (frontend/**).
+They load on file *reads*, so **when planning or designing before opening any file, read the
+relevant one first** — `backend.md` before designing an endpoint, `schema.md` before a table,
+`design.md` before a screen.
+
 ## Layout
-- `frontend/` — React app (Vite). `src/App.tsx` is the entry UI.
+- `frontend/` — React app (Vite). `src/main.tsx` boots → `src/AppRoutes.tsx` (React Router) →
+  `src/pages/` (+ `auth/`, `components/`, `lib/`).
 - `backend/` — FastAPI app in `app/`: `routes/` → `services/` → `db/` (+ `schemas/` for
-  Pydantic shapes, `tests/`). One file per feature per layer (e.g. `routes/check_ins.py`).
+  Pydantic shapes). Tests live at `backend/tests/`. One file per feature per layer.
 - `supabase/migrations/` — versioned schema (Supabase CLI).
 
 ## Commands

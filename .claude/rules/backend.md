@@ -1,0 +1,87 @@
+---
+paths:
+  - "backend/**"
+---
+
+# Backend rules (FastAPI)
+
+Loads whenever you touch `backend/`. The canonical example of the layering below is the
+**profiles** feature — read `routes/profiles.py` → `services/profiles.py` → `db/profiles.py` →
+`schemas/profiles.py` and copy its shape. (It is clean, but it is not a complete example of the
+security rules: `/me` takes no resource id, so it never exercises the ownership checks below.)
+
+## Security — the rules that stop a cross-user data leak
+
+We connect to Postgres as the **`postgres` role, which has `BYPASSRLS`**. (It's the role, not the
+pooler mode — switching pooler modes does not re-engage RLS.) The RLS policies in the schema
+protect the *browser's* anon-key path. On the server they do nothing. **The JWT-verified user id
+is the only thing separating one user's data from another's.**
+
+You still enable RLS + an owner-only policy on every new table (`schema.md`). It's the second
+lock — the one that saves you the day something queries with the anon key.
+
+**1. `UserIdDep` is the only trustworthy source of a user id.** Never take a user id from a
+request body, path param, or query string.
+
+**2. Every id that came from the client is untrusted — not just user ids.** A `check_in_id` in a
+path is a claim, not a fact. Any read, update, or delete of a client-named row filters on the
+owner **in the same statement**:
+
+```python
+# WRONG — any user can delete any check-in. Passes "never take a user id from the client".
+"delete from public.check_ins where id = $1"
+# RIGHT — ownership is part of the write, not a separate check (a prior SELECT is a TOCTOU race).
+"delete from public.check_ins where id = $1 and user_id = $2"
+```
+
+**3. Every INSERT sets `user_id` from `UserIdDep`** — never from the payload. Inserts have no
+`WHERE`, so this is the only thing binding the row to its owner.
+
+**4. A child row whose parent id came from the client must prove the parent is the caller's,
+inside the write:**
+
+```sql
+insert into public.workout_sets (user_id, check_in_id, ...)
+select $1, $2, ...
+ where exists (select 1 from public.check_ins where id = $2 and user_id = $1)
+```
+
+**5. Someone else's row is a 404, not a 403.** Don't confirm that it exists.
+
+**6. Parameterized queries only** (`$1`, `$2`). Never f-string a user value into SQL. F-strings
+are for fixed column lists only (see `_COLUMNS` in `db/profiles.py` — the one sanctioned use).
+
+**The one ownerless table: `exercises`.** It's a shared catalog (no `user_id` column — see the
+migration), so rules 2–4 don't apply to it and can't. It must therefore contain **no user data**:
+never write user-identifying text into `name`. Every *other* table is user-owned; if you add one
+that isn't, argue for it here first.
+
+## Layering — routes → services → db
+
+- `routes/` — HTTP only: auth dep, status codes, response models. **Never imports from `db/`.**
+- `services/` — business logic; maps DB rows to Pydantic shapes. Takes `(pool, user_id, ...)`.
+- `db/` — the only layer that touches Postgres. Takes `(pool, user_id, ...)` explicitly.
+- `schemas/` — Pydantic in/out shapes, one module per feature.
+- One file per feature per layer: `routes/check_ins.py` → `services/check_ins.py` → `db/check_ins.py`.
+- Services return `None` for a missing row; the **route** decides that means 404.
+
+## Typing
+
+`mypy` strict (`uv run mypy app`), fully annotated. **No `Any`** — note that strict mode does
+*not* ban an explicit `Any`, so this one is on you and the reviewers, not the type-checker.
+Pydantic models for every request body, response, and AI-extraction shape — never a bare `dict`.
+
+## Tests
+
+`tests/` lives at `backend/tests/` (not inside `app/`); `asyncio_mode = "auto"`, so async tests
+need no decorator. Anything touching **data, auth, or the AI pipeline is tests-first**, written
+from intended behavior — never from the code just written.
+
+Auth negative paths that must be covered: missing token, expired, wrong signature, algorithm
+confusion, wrong issuer, wrong audience.
+
+**Cross-tenant test — mandatory for every endpoint that accepts a resource id:** user B's token +
+user A's row id → **404, and A's row is unchanged**. This is the test that catches rule 2. No
+endpoint takes a resource id yet (`/me` derives everything from the token), so the suite has no
+cross-tenant coverage today — the first endpoint that takes an id must add it, against the real
+DB (the fakes in `test_profiles.py` can't execute SQL, so they cannot prove this).

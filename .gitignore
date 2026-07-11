@@ -6,6 +6,8 @@
 # Personal Claude Code instructions + working scratch (not shared)
 CLAUDE.local.md
 PROGRESS.md
+# Machine-local permissions/settings — .claude/settings.json IS shared, this one isn't
+.claude/settings.local.json
 
 # Python
 __pycache__/

@@ -1,3 +1,9 @@
+---
+paths:
+  - "supabase/migrations/**"
+  - "backend/app/db/**"
+---
+
 # Schema conventions (Postgres / Supabase)
 
 Apply these to **every** table, no exceptions. This is the "strong foundation" — consistency
@@ -8,6 +14,10 @@ across all tables. Backed by current Postgres + Supabase best practice.
 - `user_id uuid NOT NULL` → `auth.users(id) ON DELETE CASCADE` (ties each row to its owner;
   deleting a user removes their data — no orphans).
 - `created_at timestamptz NOT NULL default now()`.
+
+**The one exception: `exercises`** — a shared catalog with no owner and therefore no `user_id`.
+It holds no user data. Every other table is user-owned; if you think you need a second ownerless
+table, argue for it here first. (The backend's counterpart rules are in `backend.md`.)
 
 ## Naming
 - Tables: plural snake_case — `check_ins`, `workout_sets`.
