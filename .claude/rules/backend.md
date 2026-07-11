@@ -5,24 +5,56 @@ paths:
 
 # Backend rules (FastAPI)
 
-Loads whenever you touch `backend/`. The canonical, already-correct example of every rule
-below is the **profiles** feature — read `routes/profiles.py` → `services/profiles.py` →
-`db/profiles.py` → `schemas/profiles.py` and copy its shape.
+Loads whenever you touch `backend/`. The canonical example of the layering below is the
+**profiles** feature — read `routes/profiles.py` → `services/profiles.py` → `db/profiles.py` →
+`schemas/profiles.py` and copy its shape. (It is clean, but it is not a complete example of the
+security rules: `/me` takes no resource id, so it never exercises the ownership checks below.)
 
-## Security — the one that can leak user data
+## Security — the rules that stop a cross-user data leak
 
-**The backend's DB role (Supabase session pooler) BYPASSES Row-Level Security.** The RLS
-policies in the schema protect the *browser* (anon-key) path. They do nothing here. On the
-server, the JWT-verified user id is the *only* thing separating one user's data from another's.
+We connect to Postgres as the **`postgres` role, which has `BYPASSRLS`**. (It's the role, not the
+pooler mode — switching pooler modes does not re-engage RLS.) The RLS policies in the schema
+protect the *browser's* anon-key path. On the server they do nothing. **The JWT-verified user id
+is the only thing separating one user's data from another's.**
 
-- Every route that reads or writes user data declares `UserIdDep` (`app/auth.py`) — that is the
-  only trustworthy source of a user id.
-- **Never** take a user id from a request body, path param, or query string. A caller who can
-  name someone else's id can read their data.
-- Every statement in `db/` filters on that user id (`where user_id = $1` — or `where id = $1`
-  on `profiles`, whose PK *is* the user id). No exceptions, including new tables.
-- Parameterized queries only (`$1`, `$2`). Never f-string a user value into SQL. F-strings are
-  for fixed column lists only (see `_COLUMNS` in `db/profiles.py`).
+You still enable RLS + an owner-only policy on every new table (`schema.md`). It's the second
+lock — the one that saves you the day something queries with the anon key.
+
+**1. `UserIdDep` is the only trustworthy source of a user id.** Never take a user id from a
+request body, path param, or query string.
+
+**2. Every id that came from the client is untrusted — not just user ids.** A `check_in_id` in a
+path is a claim, not a fact. Any read, update, or delete of a client-named row filters on the
+owner **in the same statement**:
+
+```python
+# WRONG — any user can delete any check-in. Passes "never take a user id from the client".
+"delete from public.check_ins where id = $1"
+# RIGHT — ownership is part of the write, not a separate check (a prior SELECT is a TOCTOU race).
+"delete from public.check_ins where id = $1 and user_id = $2"
+```
+
+**3. Every INSERT sets `user_id` from `UserIdDep`** — never from the payload. Inserts have no
+`WHERE`, so this is the only thing binding the row to its owner.
+
+**4. A child row whose parent id came from the client must prove the parent is the caller's,
+inside the write:**
+
+```sql
+insert into public.workout_sets (user_id, check_in_id, ...)
+select $1, $2, ...
+ where exists (select 1 from public.check_ins where id = $2 and user_id = $1)
+```
+
+**5. Someone else's row is a 404, not a 403.** Don't confirm that it exists.
+
+**6. Parameterized queries only** (`$1`, `$2`). Never f-string a user value into SQL. F-strings
+are for fixed column lists only (see `_COLUMNS` in `db/profiles.py` — the one sanctioned use).
+
+**The one ownerless table: `exercises`.** It's a shared catalog (no `user_id` column — see the
+migration), so rules 2–4 don't apply to it and can't. It must therefore contain **no user data**:
+never write user-identifying text into `name`. Every *other* table is user-owned; if you add one
+that isn't, argue for it here first.
 
 ## Layering — routes → services → db
 
@@ -35,14 +67,21 @@ server, the JWT-verified user id is the *only* thing separating one user's data 
 
 ## Typing
 
-`mypy --strict` (`warn_unused_ignores`). Fully annotated, **no `any`**. Pydantic models for every
-request body, response, and AI-extraction shape — never a bare `dict`. A failing type-check
-blocks the commit.
+`mypy` strict (`uv run mypy app`), fully annotated. **No `Any`** — note that strict mode does
+*not* ban an explicit `Any`, so this one is on you and the reviewers, not the type-checker.
+Pydantic models for every request body, response, and AI-extraction shape — never a bare `dict`.
 
 ## Tests
 
-`tests/` mirrors the features (`test_auth.py`, `test_profiles.py`, `test_health.py`);
-`asyncio_mode = "auto"`, so async tests need no decorator. Anything touching **data, auth, or the
-AI pipeline is tests-first**, written from intended behavior — never from the code just written.
-Auth tests must cover the negative paths: missing token, expired token, wrong signature, and a
-token that names *another* user's row.
+`tests/` lives at `backend/tests/` (not inside `app/`); `asyncio_mode = "auto"`, so async tests
+need no decorator. Anything touching **data, auth, or the AI pipeline is tests-first**, written
+from intended behavior — never from the code just written.
+
+Auth negative paths that must be covered: missing token, expired, wrong signature, algorithm
+confusion, wrong issuer, wrong audience.
+
+**Cross-tenant test — mandatory for every endpoint that accepts a resource id:** user B's token +
+user A's row id → **404, and A's row is unchanged**. This is the test that catches rule 2. No
+endpoint takes a resource id yet (`/me` derives everything from the token), so the suite has no
+cross-tenant coverage today — the first endpoint that takes an id must add it, against the real
+DB (the fakes in `test_profiles.py` can't execute SQL, so they cannot prove this).

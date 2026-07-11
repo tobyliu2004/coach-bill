@@ -13,7 +13,11 @@ Not "should work" — show it. As applicable:
 
 If something fails, say so with the output. Never report a green you didn't see.
 
-## 2. Two reviewers — independently (the anti-slop gate)
+## 2. Open the PR
+Push the branch and open the PR **now**, before Toby reviews — he rules on a GitHub diff, not on
+a local branch. Never push to `main`.
+
+## 3. Two reviewers — independently (the anti-slop gate)
 Run `project-reviewer` and `cold-reviewer` (`.claude/agents/`) on the diff **in parallel, in
 fresh contexts**. Never show one's findings to the other. Never brief the cold reviewer — its
 entire value is that it doesn't know what anything is supposed to mean, so it can tell you
@@ -22,7 +26,7 @@ whether the code stands on its own.
 Then reconcile both reports yourself: fix what's real, and for each finding you *don't* act on,
 say why in one line. A finding you can't refute is a finding you fix.
 
-## 3. Hand off to Toby (the learning gate)
+## 4. Hand off to Toby (the learning gate)
 Give him:
 - What changed and why, in plain terms.
 - The judgment calls that are his to rule on.
@@ -31,8 +35,8 @@ Give him:
 
 Then wait. He says merge.
 
-## 4. Ship and reset
-- PR → merge → CI deploys. (Never push to `main`.)
+## 5. Ship and reset
+- Merge (Toby's call) → CI deploys.
 - Update `PROGRESS.md` so a fresh session resumes with zero loss: status, what's next, in-flight
   decisions. Durable facts (prod config, gotchas) belong in the curated docs or a rules file —
   not buried in a scratch file.

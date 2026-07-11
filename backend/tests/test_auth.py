@@ -150,6 +150,23 @@ async def test_alg_confusion_forgery_is_rejected(client: AsyncClient) -> None:
     assert resp.status_code == 401
 
 
+async def test_token_signed_by_a_different_key_is_401(client: AsyncClient) -> None:
+    """A well-formed ES256 token signed by a key that isn't the project's must bounce.
+
+    This is the signature check itself: everything about the token (alg, aud, iss, exp,
+    sub) is valid — only the key is wrong. Without it, the suite proves we reject *bad
+    claims* but never proves we actually verify the signature."""
+    _use_fake_jwks()
+    attacker_key = ec.generate_private_key(ec.SECP256R1())
+
+    resp = await client.get(
+        "/test-auth/whoami",
+        headers={"Authorization": f"Bearer {_make_token(key=attacker_key)}"},
+    )
+
+    assert resp.status_code == 401
+
+
 async def test_wrong_issuer_is_401(client: AsyncClient) -> None:
     """A validly-signed token from a different Supabase project/environment must bounce."""
     _use_fake_jwks()
@@ -176,9 +193,7 @@ async def test_wrong_audience_is_401(client: AsyncClient) -> None:
 async def test_garbage_token_is_401(client: AsyncClient) -> None:
     _use_fake_jwks()
 
-    resp = await client.get(
-        "/test-auth/whoami", headers={"Authorization": "Bearer not.a.jwt"}
-    )
+    resp = await client.get("/test-auth/whoami", headers={"Authorization": "Bearer not.a.jwt"})
 
     assert resp.status_code == 401
 

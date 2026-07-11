@@ -15,6 +15,10 @@ across all tables. Backed by current Postgres + Supabase best practice.
   deleting a user removes their data — no orphans).
 - `created_at timestamptz NOT NULL default now()`.
 
+**The one exception: `exercises`** — a shared catalog with no owner and therefore no `user_id`.
+It holds no user data. Every other table is user-owned; if you think you need a second ownerless
+table, argue for it here first. (The backend's counterpart rules are in `backend.md`.)
+
 ## Naming
 - Tables: plural snake_case — `check_ins`, `workout_sets`.
 - Columns: singular snake_case — `user_id`, `set_number`.
