@@ -1,3 +1,8 @@
+---
+paths:
+  - "frontend/**"
+---
+
 # Design rules (frontend)
 
 Apply to **every** screen, no exceptions — consistency IS the premium feel. Values live in

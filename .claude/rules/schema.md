@@ -1,3 +1,9 @@
+---
+paths:
+  - "supabase/migrations/**"
+  - "backend/app/db/**"
+---
+
 # Schema conventions (Postgres / Supabase)
 
 Apply these to **every** table, no exceptions. This is the "strong foundation" — consistency
