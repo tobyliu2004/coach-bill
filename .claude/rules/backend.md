@@ -74,8 +74,26 @@ Pydantic models for every request body, response, and AI-extraction shape — ne
 ## Tests
 
 `tests/` lives at `backend/tests/` (not inside `app/`); `asyncio_mode = "auto"`, so async tests
-need no decorator. Anything touching **data, auth, or the AI pipeline is tests-first**, written
-from intended behavior — never from the code just written.
+need no decorator.
+
+**Anything touching data, auth, or the AI pipeline goes through the correctness gate** — you do
+not get to decide what "correct" means for it:
+
+1. `/feature` proposes a correctness table (`input → expected`, negative cases included) and
+   **stops for Toby to approve it**; the approved table lands in the GitHub issue.
+2. **`test-author`** (`.claude/agents/`) writes the failing suite from that table **before the
+   implementation exists**, mapping each test to a row. There is no code on disk for it to
+   describe — that's what makes it an oracle instead of a photograph.
+3. That suite is **commit #1 on the branch** (`test(...): failing suite from approved AC rows`) —
+   the *oracle commit*. It is what makes the gate auditable instead of honor-system.
+4. You then make those tests pass. **Never edit, weaken, skip, or delete them.** A test that
+   looks wrong is a *correctness-table bug* → back to Toby. `/ship` diffs the test files against
+   the **oracle commit** — not `main`, where a weakened assertion inside a branch-new file is
+   indistinguishable from an original one and a deleted test shows up as nothing at all.
+
+A suite that goes green before the implementation is written is a **broken oracle**, not good
+news. Assert on specific expected values — an assertion that would pass against several
+different behaviors is not an assertion.
 
 Auth negative paths that must be covered: missing token, expired, wrong signature, algorithm
 confusion, wrong issuer, wrong audience.
