@@ -44,13 +44,19 @@ oracle commit, both are visible.
 - **No `test:` commit first on the branch** on a data/auth/AI feature → the tests-first gate did
   not happen. Say so out loud rather than proceeding as if it did.
 
-## 3. Security review (before the PR, not after)
-If the diff touches `backend/`, `supabase/migrations/`, or anything auth: run **`/security-review`**.
+## 3. Security review — mandatory, and nothing else will catch it
+If the diff touches `backend/`, `supabase/migrations/`, or anything auth:
+**read `.claude/security-review-instructions.md`, then run `/security-review`**, then check the
+diff against every rule in that file yourself.
 
-The backend connects as a role that **BYPASSES RLS** — `and user_id = $2` is the entire security
-model, and a single missing filter is a cross-user data leak. `.github/workflows/security-review.yml`
-runs the same check on every PR, but running it here means finding it in seconds rather than
-after the PR is open.
+The backend connects as a role that **BYPASSES RLS** — `and user_id = $2` *in the statement* is
+the entire security model, and a single missing filter is a cross-user data leak.
+
+**There is no CI security gate.** The GitHub action needs a pay-per-token API key and we chose
+not to take that billing risk, so unlike the type-check — which `ci-ok` enforces whether anyone
+remembers it or not — this step is *advisory*. It protects us only if you actually run it. Do not
+skip it because the diff looks small: the smallest diffs here are the dangerous ones
+(`delete from check_ins where id = $1` is one line and leaks every user's data).
 
 ## 4. Open the PR
 Push the branch and open the PR **now**, before Toby reviews — he rules on a GitHub diff, not on

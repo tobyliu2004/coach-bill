@@ -1,7 +1,12 @@
-# Coach Bill — project-specific security scan instructions
+# Coach Bill — project-specific security review checklist
 
-Appended to the audit prompt by `.github/workflows/security-review.yml`. These are the rules a
-generic scanner cannot infer from the code, and they are the ones that matter most here.
+**Read this before running `/security-review`** (a mandatory `/ship` step for any diff touching
+`backend/`, `supabase/migrations/`, or auth), and check the diff against every rule below.
+
+These are the rules a generic scanner cannot infer from the code, and they are the ones that
+matter most here. There is deliberately **no CI security gate** — the GitHub action needs a
+pay-per-token API key, which is a billing risk we chose not to take for a solo project. That
+makes this checklist *advisory*: it only protects us if it actually gets run. Run it.
 
 ## The threat model in one paragraph
 
