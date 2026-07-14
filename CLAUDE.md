@@ -26,11 +26,12 @@ For every non-trivial feature, in order:
 3. Build from the plan. **Tests come from `test-author`, before the implementation exists**, for
    anything touching data, auth, or the AI pipeline.
 4. Small, one-concern commits (Conventional Commits: `feat:` / `fix:` / `chore:`).
-5. **`/ship`** — verify with evidence → test-tamper check → security review → both reviewers
-   independently → Toby's diff review → PR.
+5. **`/ship`** — verify with evidence → oracle check (did the code move the tests?) → security
+   review → **open the PR** → both reviewers independently → Toby's diff review → he merges.
 6. Merge → CI deploys → log progress → `/clear` → next issue.
 
-Rule of thumb: if you could describe the diff in one sentence, skip the plan.
+Rule of thumb: if you could describe the diff in one sentence, skip **the plan**. It does not let
+you skip the correctness gate — size is not the axis, risk is.
 
 ## The correctness gate (why the tests aren't mine to decide)
 If Claude writes the tests *and* the code, it grades its own homework: the tests end up encoding
