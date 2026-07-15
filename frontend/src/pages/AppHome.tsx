@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../auth/useAuth'
 import { api } from '../lib/client'
-import type { CheckIn } from '../lib/api'
+import { ApiAuthError, type CheckIn } from '../lib/api'
 
 /**
  * The daily app shell + the text check-in flow. Deliberately quiet — no Lenis, no
@@ -11,7 +11,7 @@ import type { CheckIn } from '../lib/api'
  */
 
 const composeClasses =
-  'w-full resize-none rounded-control border border-edge-strong bg-bg px-3.5 py-3 text-sm ' +
+  'w-full resize-none rounded-control border border-edge-strong bg-bg px-3 py-3 text-sm ' +
   'text-fg placeholder:text-fg-muted focus:border-fg-muted focus:outline-none'
 
 // created_at is data → mono, tabular. Local time, since "today" is already the user's day.
@@ -27,19 +27,30 @@ function AppHome() {
   const [text, setText] = useState('')
   const [checkIns, setCheckIns] = useState<CheckIn[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadFailed, setLoadFailed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // A rejected token means "signed out" — mirror AuthProvider and sign out rather than
+  // stranding the user on a broken shell. Everything else is a transient in-app error.
+  const onError = useCallback(
+    (err: unknown, message: () => void): void => {
+      if (err instanceof ApiAuthError) void signOut()
+      else message()
+    },
+    [signOut],
+  )
 
   const refresh = useCallback(async () => {
     try {
       setCheckIns(await api.listCheckIns())
-      setError(null)
-    } catch {
-      setError('Could not load today’s check-ins.')
+      setLoadFailed(false)
+    } catch (err) {
+      onError(err, () => setLoadFailed(true))
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [onError])
 
   useEffect(() => {
     void refresh()
@@ -54,8 +65,8 @@ function AppHome() {
       await api.createCheckIn(body)
       setText('')
       await refresh()
-    } catch {
-      setError('That didn’t save — try again.')
+    } catch (err) {
+      onError(err, () => setError('That didn’t save — try again.'))
     } finally {
       setBusy(false)
     }
@@ -67,8 +78,8 @@ function AppHome() {
       await api.deleteCheckIn(id)
       // Drop it locally — no refetch, no animation; a delete should feel instant.
       setCheckIns((rows) => rows.filter((row) => row.id !== id))
-    } catch {
-      setError('Could not delete that — try again.')
+    } catch (err) {
+      onError(err, () => setError('Could not delete that — try again.'))
     }
   }
 
@@ -141,7 +152,11 @@ function AppHome() {
         )}
 
         {!loading &&
-          (checkIns.length > 0 ? (
+          (loadFailed ? (
+            <p role="alert" className="font-mono text-xs text-fg-muted">
+              Couldn’t load today’s check-ins — refresh to try again.
+            </p>
+          ) : checkIns.length > 0 ? (
             <section className="flex flex-col gap-3">
               <div className="flex items-baseline justify-between">
                 <span className="font-mono text-xs tracking-wider text-fg-muted uppercase">
