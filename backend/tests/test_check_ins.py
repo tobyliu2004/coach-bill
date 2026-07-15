@@ -335,10 +335,9 @@ async def _delete_users(pool: Any, *user_ids: uuid.UUID) -> None:
 @requires_db
 async def test_cross_tenant_delete_leaves_a_row_unchanged() -> None:
     from app.db.check_ins import delete_check_in
+    from app.db.pool import close_pool, create_pool
     from app.schemas.check_ins import CheckInCreate
     from app.services.check_ins import create_check_in, list_check_ins
-
-    from app.db.pool import close_pool, create_pool
 
     a, b = uuid.uuid4(), uuid.uuid4()
     pool = await create_pool(os.environ["DATABASE_URL"])
@@ -365,10 +364,9 @@ async def test_cross_tenant_delete_leaves_a_row_unchanged() -> None:
 # AC row 9: user B calls list while user A has rows -> B sees only B's, A sees only A's.
 @requires_db
 async def test_list_is_isolated_per_user() -> None:
+    from app.db.pool import close_pool, create_pool
     from app.schemas.check_ins import CheckInCreate
     from app.services.check_ins import create_check_in, list_check_ins
-
-    from app.db.pool import close_pool, create_pool
 
     a, b = uuid.uuid4(), uuid.uuid4()
     pool = await create_pool(os.environ["DATABASE_URL"])
@@ -393,9 +391,8 @@ async def test_list_is_isolated_per_user() -> None:
 @requires_db
 async def test_list_returns_only_todays_rows() -> None:
     from app.db.check_ins import insert_check_in
-    from app.services.check_ins import list_check_ins
-
     from app.db.pool import close_pool, create_pool
+    from app.services.check_ins import list_check_ins
 
     a = uuid.uuid4()
     pool = await create_pool(os.environ["DATABASE_URL"])
