@@ -27,7 +27,8 @@ For every non-trivial feature, in order:
    anything touching data, auth, or the AI pipeline.
 4. Small, one-concern commits (Conventional Commits: `feat:` / `fix:` / `chore:`).
 5. **`/ship`** — verify with evidence → oracle check (did the code move the tests?) → security
-   review → **open the PR** → both reviewers independently → Toby's diff review → he merges.
+   review → **open the PR** → both reviewers independently → Toby's diff review → merge (Claude
+   may run the merge once Toby authorizes it — see the protocol below).
 6. Merge → CI deploys → log progress → `/clear` → next issue.
 
 Rule of thumb: if you could describe the diff in one sentence, skip **the plan**. It does not let
@@ -111,5 +112,7 @@ with the other. The order is what makes that real:**
 Reconcile both and fix what's real — reviewers over-report, so verify each finding against the
 code before acting. **Toby gets every finding and its disposition** (fixed, or refuted and why),
 not just the ones acted on — a dismissal he can't see is a deletion. Then he rules on the
-judgment calls and deep-dives ONE load-bearing file with Claude (learning goal); then he says
-merge.
+judgment calls and deep-dives ONE load-bearing file with Claude (learning goal); then he gives
+the word to merge. **Claude may run the merge itself once Toby authorizes it** — the review, the
+disposition of every finding, and any explanation Toby asks for still come first and are never
+skipped; only the mechanical click is delegated. Toby can always merge by hand instead.
