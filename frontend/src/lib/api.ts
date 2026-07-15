@@ -26,6 +26,15 @@ export interface ProfileUpdate {
   consent?: boolean
 }
 
+/** Mirrors backend/app/schemas/check_ins.py CheckInOut — keep them in sync. */
+export interface CheckIn {
+  id: string
+  raw_text: string
+  source: 'voice' | 'text'
+  entry_date: string
+  created_at: string
+}
+
 /** No session, or the backend rejected the token — the caller should treat as signed out. */
 export class ApiAuthError extends Error {}
 
@@ -64,6 +73,8 @@ export function createApi({
     })
     if (response.status === 401) throw new ApiAuthError('session rejected by the API')
     if (!response.ok) throw new ApiError(response.status, `${path} failed`)
+    // 204 (e.g. DELETE) has no body — calling .json() on it throws. Return void.
+    if (response.status === 204) return undefined as T
     return (await response.json()) as T
   }
 
@@ -73,6 +84,15 @@ export function createApi({
     },
     updateMe(patch: ProfileUpdate): Promise<Profile> {
       return request<Profile>('/me', { method: 'PATCH', body: JSON.stringify(patch) })
+    },
+    createCheckIn(text: string): Promise<CheckIn> {
+      return request<CheckIn>('/check-ins', { method: 'POST', body: JSON.stringify({ text }) })
+    },
+    listCheckIns(): Promise<CheckIn[]> {
+      return request<CheckIn[]>('/check-ins')
+    },
+    deleteCheckIn(id: string): Promise<void> {
+      return request<void>(`/check-ins/${id}`, { method: 'DELETE' })
     },
   }
 }
