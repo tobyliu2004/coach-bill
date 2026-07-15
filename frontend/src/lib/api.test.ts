@@ -5,7 +5,7 @@
  * supabase client or network.
  */
 import { describe, expect, it, vi } from 'vitest'
-import { ApiAuthError, ApiError, createApi, type Profile } from './api'
+import { ApiAuthError, ApiError, createApi, type CheckIn, type Profile } from './api'
 
 const PROFILE: Profile = {
   id: '5e0acb28-0000-4000-8000-000000000000',
@@ -88,5 +88,79 @@ describe('updateMe', () => {
     expect(init.method).toBe('PATCH')
     expect(new Headers(init.headers).get('Content-Type')).toBe('application/json')
     expect(JSON.parse(init.body as string)).toEqual({ goal: 'cut to 175', consent: true })
+  })
+})
+
+// --- check-ins wrapper (backend issue #18) ---
+
+const CHECK_IN: CheckIn = {
+  id: '9a3b1c2d-0000-4000-8000-000000000000',
+  raw_text: 'did 5x5 squats at 225',
+  source: 'text',
+  entry_date: '2026-07-15',
+  created_at: '2026-07-15T12:00:00Z',
+}
+
+describe('createCheckIn', () => {
+  // AC row 1: POST /check-ins with a JSON { text } body + Bearer header, returns the CheckIn.
+  it('POSTs the text as JSON and returns the parsed check-in', async () => {
+    const { api, fetchMock } = makeApi({ token: 't', response: jsonResponse(201, CHECK_IN) })
+
+    const result = await api.createCheckIn('did 5x5 squats at 225')
+
+    expect(result).toEqual(CHECK_IN)
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('http://api.test/check-ins')
+    expect(init.method).toBe('POST')
+    expect(new Headers(init.headers).get('Content-Type')).toBe('application/json')
+    expect(new Headers(init.headers).get('Authorization')).toBe('Bearer t')
+    expect(JSON.parse(init.body as string)).toEqual({ text: 'did 5x5 squats at 225' })
+  })
+})
+
+describe('listCheckIns', () => {
+  // AC rows 7/8: GET /check-ins returns the parsed array (including the empty-list case).
+  it('GETs and returns the parsed array', async () => {
+    const { api, fetchMock } = makeApi({ token: 't', response: jsonResponse(200, [CHECK_IN]) })
+
+    const result = await api.listCheckIns()
+
+    expect(result).toEqual([CHECK_IN])
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('http://api.test/check-ins')
+    // GET is the default method; assert it is not mutated to something else.
+    expect(init.method ?? 'GET').toBe('GET')
+  })
+
+  it('returns an empty array when the backend has no check-ins today', async () => {
+    const { api } = makeApi({ token: 't', response: jsonResponse(200, []) })
+
+    await expect(api.listCheckIns()).resolves.toEqual([])
+  })
+})
+
+describe('deleteCheckIn', () => {
+  // AC row 11: DELETE /check-ins/{id} to the right path + method with a Bearer header.
+  it('DELETEs the id path with the Bearer header', async () => {
+    const { api, fetchMock } = makeApi({
+      token: 't',
+      response: new Response(null, { status: 204 }),
+    })
+
+    await api.deleteCheckIn('9a3b1c2d-0000-4000-8000-000000000000')
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('http://api.test/check-ins/9a3b1c2d-0000-4000-8000-000000000000')
+    expect(init.method).toBe('DELETE')
+    expect(new Headers(init.headers).get('Authorization')).toBe('Bearer t')
+  })
+
+  // AC row 11 (204, no body): the current request<T> always calls response.json(), which
+  // THROWS on an empty 204 body. deleteCheckIn must RESOLVE, not reject. This test is
+  // expected to fail against today's api.ts — it pins the 204-handling fix.
+  it('resolves (does not reject) on an empty 204 response', async () => {
+    const { api } = makeApi({ token: 't', response: new Response(null, { status: 204 }) })
+
+    await expect(api.deleteCheckIn('9a3b1c2d-0000-4000-8000-000000000000')).resolves.toBeUndefined()
   })
 })
