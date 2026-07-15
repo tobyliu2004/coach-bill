@@ -18,6 +18,17 @@ async def get_profile(pool: asyncpg.Pool, user_id: UUID) -> asyncpg.Record | Non
         return row
 
 
+async def get_user_timezone(pool: asyncpg.Pool, user_id: UUID) -> str | None:
+    """The caller's IANA timezone, or None (missing row or NULL tz). Callers fall back
+    to UTC — see app/time.local_today. Scoped to the verified id like every read here."""
+    async with pool.acquire() as conn:
+        tz: str | None = await conn.fetchval(
+            "select timezone from public.profiles where id = $1",
+            user_id,
+        )
+        return tz
+
+
 async def update_profile(
     pool: asyncpg.Pool,
     user_id: UUID,
