@@ -14,11 +14,35 @@ Proven against a real database by `test_row14_user_b_cannot_attach_facts_to_user
 
 from collections.abc import Sequence
 from decimal import Decimal
+from typing import NamedTuple
 from uuid import UUID
 
 import asyncpg
 
 from app.db.session import authed_conn
+
+# Type-only import: the meal literal is defined once (schemas/check_ins.py) so `meal` keeps
+# its exact type through this layer instead of widening to `str | None` and forcing a cast.
+from app.schemas.check_ins import Meal
+
+
+class StoredFacts(NamedTuple):
+    """The fact rows that actually landed, each with the id Postgres assigned.
+
+    "Actually landed" is load-bearing: every insert here is `... where exists (parent is
+    yours)` and RETURNING gives back nothing when that guard blocks the write. Recording
+    only what RETURNING produced means the response can never claim a row we didn't write.
+    """
+
+    # (id, exercise_name, set_number, reps, weight_kg)
+    sets: list[tuple[UUID, str, int, int, Decimal | None]]
+    # (id, description, calories, protein_g, carbs_g, fat_g, meal)
+    nutrition: list[tuple[UUID, str, Decimal, Decimal, Decimal, Decimal, Meal | None]]
+    # (id, hours, quality)
+    sleep: list[tuple[UUID, Decimal, int | None]]
+    # (id, weight_kg)
+    bodyweight: list[tuple[UUID, Decimal]]
+
 
 # The four tables extraction owns, in the order a re-run clears them. Every one is
 # check-in-scoped and user-owned.
@@ -50,13 +74,14 @@ async def replace_facts(
     # list of a Literal meal type is not a `list[str | None]` as far as the type-checker is
     # concerned, even though every element is fine.
     sets: Sequence[tuple[str, int, int, Decimal | None]],
-    nutrition: Sequence[tuple[str, Decimal, Decimal, Decimal, Decimal, str | None]],
+    nutrition: Sequence[tuple[str, Decimal, Decimal, Decimal, Decimal, Meal | None]],
     sleep: Sequence[tuple[Decimal, int | None]],
     bodyweight: Sequence[Decimal],
-) -> list[tuple[str, int, int, Decimal | None]]:
-    """Replace this check-in's derived facts with the ones given. Returns the `sets` that
-    were actually stored — anything missing was rejected by the guard, which is what the
-    caller turns into 'partial'.
+) -> StoredFacts:
+    """Replace this check-in's derived facts with the ones given, and return what landed.
+
+    A `set` that comes back missing was rejected by the guard — that is what the caller
+    turns into 'partial'.
 
     REPLACE, not append: extraction is re-runnable and the fact tables have no unique
     constraint to upsert against, so a second run that only inserted would silently double
@@ -67,7 +92,7 @@ async def replace_facts(
     `sets` carries the exercise's raw NAME, not an id: ids only exist on the far side of the
     guard, and the guard has to run inside this transaction.
     """
-    stored_sets: list[tuple[str, int, int, Decimal | None]] = []
+    stored = StoredFacts(sets=[], nutrition=[], sleep=[], bodyweight=[])
     async with authed_conn(pool, user_id) as conn:
         # Clear first. Owner-scoped in the same statement (backend rule 2) — `check_in_id`
         # came from a caller, so it is a claim, not a fact.
@@ -84,11 +109,12 @@ async def replace_facts(
                 # The guard rejected this name. Drop THIS set and keep going — one bad
                 # name must not cost the user the rest of their check-in (AC row 13).
                 continue
-            await conn.execute(
+            new_id: UUID | None = await conn.fetchval(
                 "insert into public.workout_sets "
                 "(user_id, check_in_id, exercise_id, set_number, reps, weight_kg) "
                 "select $1, $2, $3, $4, $5, $6 "
-                " where exists (select 1 from public.check_ins where id = $2 and user_id = $1)",
+                " where exists (select 1 from public.check_ins where id = $2 and user_id = $1) "
+                "returning id",
                 user_id,
                 check_in_id,
                 exercise_id,
@@ -96,14 +122,16 @@ async def replace_facts(
                 reps,
                 weight_kg,
             )
-            stored_sets.append((exercise_name, set_number, reps, weight_kg))
+            if new_id is not None:
+                stored.sets.append((new_id, exercise_name, set_number, reps, weight_kg))
 
         for description, calories, protein_g, carbs_g, fat_g, meal in nutrition:
-            await conn.execute(
+            new_id = await conn.fetchval(
                 "insert into public.nutrition_entries "
                 "(user_id, check_in_id, description, calories, protein_g, carbs_g, fat_g, meal) "
                 "select $1, $2, $3, $4, $5, $6, $7, $8 "
-                " where exists (select 1 from public.check_ins where id = $2 and user_id = $1)",
+                " where exists (select 1 from public.check_ins where id = $2 and user_id = $1) "
+                "returning id",
                 user_id,
                 check_in_id,
                 description,
@@ -113,29 +141,39 @@ async def replace_facts(
                 fat_g,
                 meal,
             )
+            if new_id is not None:
+                stored.nutrition.append(
+                    (new_id, description, calories, protein_g, carbs_g, fat_g, meal)
+                )
 
         for hours, quality in sleep:
-            await conn.execute(
+            new_id = await conn.fetchval(
                 "insert into public.sleep_entries (user_id, check_in_id, hours, quality) "
                 "select $1, $2, $3, $4 "
-                " where exists (select 1 from public.check_ins where id = $2 and user_id = $1)",
+                " where exists (select 1 from public.check_ins where id = $2 and user_id = $1) "
+                "returning id",
                 user_id,
                 check_in_id,
                 hours,
                 quality,
             )
+            if new_id is not None:
+                stored.sleep.append((new_id, hours, quality))
 
         for weight_kg_value in bodyweight:
-            await conn.execute(
+            new_id = await conn.fetchval(
                 "insert into public.bodyweight_entries (user_id, check_in_id, weight_kg) "
                 "select $1, $2, $3 "
-                " where exists (select 1 from public.check_ins where id = $2 and user_id = $1)",
+                " where exists (select 1 from public.check_ins where id = $2 and user_id = $1) "
+                "returning id",
                 user_id,
                 check_in_id,
                 weight_kg_value,
             )
+            if new_id is not None:
+                stored.bodyweight.append((new_id, weight_kg_value))
 
-    return stored_sets
+    return stored
 
 
 async def list_facts_for_check_ins(
@@ -156,7 +194,7 @@ async def list_facts_for_check_ins(
             # exercises is the shared, ownerless catalog — joined for the display name only.
             # The owner filter lives on workout_sets, which is the user-owned side.
             "workout_sets": await conn.fetch(
-                "select ws.check_in_id, e.name as exercise_name, ws.set_number, ws.reps, "
+                "select ws.id, ws.check_in_id, e.name as exercise_name, ws.set_number, ws.reps, "
                 "       ws.weight_kg "
                 "  from public.workout_sets ws "
                 "  join public.exercises e on e.id = ws.exercise_id "
@@ -166,7 +204,7 @@ async def list_facts_for_check_ins(
                 user_id,
             ),
             "nutrition_entries": await conn.fetch(
-                "select check_in_id, description, calories, protein_g, carbs_g, fat_g, meal "
+                "select id, check_in_id, description, calories, protein_g, carbs_g, fat_g, meal "
                 "  from public.nutrition_entries "
                 " where check_in_id = any($1) and user_id = $2 "
                 " order by created_at",
@@ -174,14 +212,14 @@ async def list_facts_for_check_ins(
                 user_id,
             ),
             "sleep_entries": await conn.fetch(
-                "select check_in_id, hours, quality from public.sleep_entries "
+                "select id, check_in_id, hours, quality from public.sleep_entries "
                 " where check_in_id = any($1) and user_id = $2 "
                 " order by created_at",
                 check_in_ids,
                 user_id,
             ),
             "bodyweight_entries": await conn.fetch(
-                "select check_in_id, weight_kg from public.bodyweight_entries "
+                "select id, check_in_id, weight_kg from public.bodyweight_entries "
                 " where check_in_id = any($1) and user_id = $2 "
                 " order by created_at",
                 check_in_ids,

@@ -18,9 +18,11 @@ distinguishable: identical model output, different stored kg.
 """
 
 from decimal import Decimal
-from typing import Annotated, Literal
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+
+from app.schemas.check_ins import Meal
 
 # The exercise name the model read out of the text. Length only — the real gate is
 # `public.resolve_exercise` (the guarded door), which normalizes and validates the charset
@@ -67,7 +69,7 @@ class ExtractedNutrition(BaseModel):
     protein_g: Annotated[Decimal, Field(ge=0, le=2000)]
     carbs_g: Annotated[Decimal, Field(ge=0, le=2000)]
     fat_g: Annotated[Decimal, Field(ge=0, le=2000)]
-    meal: Literal["breakfast", "lunch", "dinner", "snack"] | None = None
+    meal: Meal | None = None
 
 
 class ExtractedSleep(BaseModel):

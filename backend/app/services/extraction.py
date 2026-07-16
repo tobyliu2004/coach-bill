@@ -98,7 +98,7 @@ async def extract_and_store(
     sleep = [(s.hours, s.quality) for s in extracted.sleep]
     bodyweight = [to_kg(b.weight, weight_unit) for b in extracted.bodyweight]
 
-    stored_sets = await facts_db.replace_facts(
+    stored = await facts_db.replace_facts(
         pool,
         user_id,
         check_in_id,
@@ -110,11 +110,14 @@ async def extract_and_store(
 
     facts = CheckInFacts(
         sets=[
-            WorkoutSetOut(exercise_name=name, set_number=number, reps=reps, weight_kg=weight_kg)
-            for name, number, reps, weight_kg in stored_sets
+            WorkoutSetOut(
+                id=row_id, exercise_name=name, set_number=number, reps=reps, weight_kg=weight_kg
+            )
+            for row_id, name, number, reps, weight_kg in stored.sets
         ],
         nutrition=[
             NutritionEntryOut(
+                id=row_id,
                 description=description,
                 calories=calories,
                 protein_g=protein_g,
@@ -122,15 +125,20 @@ async def extract_and_store(
                 fat_g=fat_g,
                 meal=meal,
             )
-            for description, calories, protein_g, carbs_g, fat_g, meal in nutrition
+            for row_id, description, calories, protein_g, carbs_g, fat_g, meal in stored.nutrition
         ],
-        sleep=[SleepEntryOut(hours=hours, quality=quality) for hours, quality in sleep],
-        bodyweight=[BodyweightEntryOut(weight_kg=kg) for kg in bodyweight],
+        sleep=[
+            SleepEntryOut(id=row_id, hours=hours, quality=quality)
+            for row_id, hours, quality in stored.sleep
+        ],
+        bodyweight=[
+            BodyweightEntryOut(id=row_id, weight_kg=kg) for row_id, kg in stored.bodyweight
+        ],
     )
 
     # A set that went in but didn't come back was rejected by the guard — the ONE thing
     # 'partial' means. Everything else, including finding nothing at all, is 'done'.
-    dropped_any = len(stored_sets) != len(requested_sets)
+    dropped_any = len(stored.sets) != len(requested_sets)
     return (_STATUS_PARTIAL if dropped_any else _STATUS_DONE), facts
 
 

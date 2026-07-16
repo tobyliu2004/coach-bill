@@ -16,6 +16,12 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 # separate future issue).
 _Text = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=4000)]
 
+# The meals `nutrition_entries.meal` allows, mirroring its CHECK constraint. Named once and
+# shared (schemas/extraction.py and db/facts.py both import it) so the four allowed values
+# can't drift apart across layers — and so `meal` keeps this exact type end to end instead of
+# widening to `str | None` on the way through the db layer and needing a cast on the way back.
+Meal = Literal["breakfast", "lunch", "dinner", "snack"]
+
 
 class CheckInCreate(BaseModel):
     """POST /check-ins body: the client sends only the text.
@@ -30,8 +36,13 @@ class CheckInCreate(BaseModel):
 
 
 class WorkoutSetOut(BaseModel):
-    """One stored `workout_sets` row. `weight_kg` is null for bodyweight moves — never 0."""
+    """One stored `workout_sets` row. `weight_kg` is null for bodyweight moves — never 0.
 
+    `id` is the database's, not an index: it survives a re-extraction reordering the rows,
+    so the UI can key on something stable.
+    """
+
+    id: UUID
     exercise_name: str
     set_number: int
     reps: int
@@ -41,17 +52,19 @@ class WorkoutSetOut(BaseModel):
 class NutritionEntryOut(BaseModel):
     """One stored `nutrition_entries` row. Macros are AI-estimated today (known debt)."""
 
+    id: UUID
     description: str
     calories: Decimal
     protein_g: Decimal
     carbs_g: Decimal
     fat_g: Decimal
-    meal: Literal["breakfast", "lunch", "dinner", "snack"] | None
+    meal: Meal | None
 
 
 class SleepEntryOut(BaseModel):
     """One stored `sleep_entries` row. `quality` is null unless the user actually rated it."""
 
+    id: UUID
     hours: Decimal
     quality: int | None
 
@@ -59,6 +72,7 @@ class SleepEntryOut(BaseModel):
 class BodyweightEntryOut(BaseModel):
     """One stored `bodyweight_entries` row."""
 
+    id: UUID
     weight_kg: Decimal
 
 

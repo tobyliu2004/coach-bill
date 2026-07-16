@@ -88,6 +88,7 @@ def _facts_for(by_table: dict[str, list[asyncpg.Record]], check_in_id: UUID) -> 
     return CheckInFacts(
         sets=[
             WorkoutSetOut(
+                id=r["id"],
                 exercise_name=r["exercise_name"],
                 set_number=r["set_number"],
                 reps=r["reps"],
@@ -97,6 +98,7 @@ def _facts_for(by_table: dict[str, list[asyncpg.Record]], check_in_id: UUID) -> 
         ],
         nutrition=[
             NutritionEntryOut(
+                id=r["id"],
                 description=r["description"],
                 calories=r["calories"],
                 protein_g=r["protein_g"],
@@ -107,9 +109,11 @@ def _facts_for(by_table: dict[str, list[asyncpg.Record]], check_in_id: UUID) -> 
             for r in rows("nutrition_entries")
         ],
         sleep=[
-            SleepEntryOut(hours=r["hours"], quality=r["quality"]) for r in rows("sleep_entries")
+            SleepEntryOut(id=r["id"], hours=r["hours"], quality=r["quality"])
+            for r in rows("sleep_entries")
         ],
         bodyweight=[
-            BodyweightEntryOut(weight_kg=r["weight_kg"]) for r in rows("bodyweight_entries")
+            BodyweightEntryOut(id=r["id"], weight_kg=r["weight_kg"])
+            for r in rows("bodyweight_entries")
         ],
     )
