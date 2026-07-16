@@ -66,10 +66,14 @@ For data, auth, and AI-pipeline work:
   test to make it pass.
 
 ## Non-negotiables (always in context — the detail lives in `.claude/rules/`)
-- **The backend connects as a role that BYPASSES RLS.** The JWT-verified user id (`UserIdDep`)
-  is the only thing isolating users. **Every id from the client is untrusted** — reads, updates
-  and deletes of a client-named row filter on `user_id` *in the same statement*; every INSERT
-  sets `user_id` from `UserIdDep`. Someone else's row is a 404. (`backend.md`)
+- **The backend runs every query as a non-BYPASSRLS role with the caller's identity set per
+  transaction, so RLS enforces owner-only isolation as a second lock — but the `user_id` filter
+  is still the mandatory first lock and the security model you write to.** **Every id from the
+  client is untrusted** — reads, updates and deletes of a client-named row filter on `user_id`
+  *in the same statement*; every INSERT sets `user_id` from `UserIdDep`. Someone else's row is a
+  404. (Staged rollout: prod flips `DATABASE_URL` to the RLS role as the last step; until then
+  prod still connects as `postgres`/BYPASSRLS, so the filter is doing the whole job — write it
+  either way.) (`backend.md`)
 - **Every new table:** `user_id` → `auth.users`, RLS on, owner-only policy, NOT NULL + CHECKs.
   The one ownerless table is `exercises` (shared catalog, no user data). (`schema.md`)
 - **Dark-only, one accent (amber), two text colors, three surfaces, two radii.** No purple
