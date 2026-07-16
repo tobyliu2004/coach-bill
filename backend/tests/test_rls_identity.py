@@ -274,9 +274,8 @@ async def _seed_check_in(pool: asyncpg.Pool, user_id: uuid.UUID, text: str) -> u
 # returns ONLY A's rows — the RLS safety net, not the application WHERE clause.
 @requires_rls_db
 async def test_unfiltered_select_returns_only_a_rows() -> None:
-    from app.db.session import authed_conn
-
     from app.db.pool import close_pool, create_pool
+    from app.db.session import authed_conn
 
     admin = _require_admin_dsn()
     a, b = uuid.uuid4(), uuid.uuid4()
@@ -303,9 +302,8 @@ async def test_unfiltered_select_returns_only_a_rows() -> None:
 # never B's rows.
 @requires_rls_db
 async def test_unfiltered_select_empty_when_a_has_no_rows() -> None:
-    from app.db.session import authed_conn
-
     from app.db.pool import close_pool, create_pool
+    from app.db.session import authed_conn
 
     admin = _require_admin_dsn()
     a, b = uuid.uuid4(), uuid.uuid4()
@@ -326,9 +324,8 @@ async def test_unfiltered_select_empty_when_a_has_no_rows() -> None:
 # Promise 3: `select auth.uid()` inside a request's transaction equals the JWT sub (A's uuid).
 @requires_rls_db
 async def test_auth_uid_equals_jwt_sub() -> None:
-    from app.db.session import authed_conn
-
     from app.db.pool import close_pool, create_pool
+    from app.db.session import authed_conn
 
     admin = _require_admin_dsn()
     a = uuid.uuid4()
@@ -376,9 +373,8 @@ async def test_no_identity_is_fail_closed() -> None:
 #   (c) authed_conn(B) -> auth.uid()==B and sees only B's rows
 @requires_rls_db
 async def test_reused_connection_carries_no_leftover_identity() -> None:
-    from app.db.session import authed_conn
-
     from app.db.pool import close_pool
+    from app.db.session import authed_conn
 
     admin = _require_admin_dsn()
     a, b = uuid.uuid4(), uuid.uuid4()
@@ -418,9 +414,8 @@ async def test_reused_connection_carries_no_leftover_identity() -> None:
 # is REJECTED by the RLS `with check` policy -> raises, and nothing is written.
 @requires_rls_db
 async def test_insert_with_other_user_id_is_rejected() -> None:
-    from app.db.session import authed_conn
-
     from app.db.pool import close_pool, create_pool
+    from app.db.session import authed_conn
 
     admin = _require_admin_dsn()
     a, b = uuid.uuid4(), uuid.uuid4()
@@ -505,12 +500,49 @@ async def test_owner_path_end_to_end() -> None:
         await close_pool(pool)
 
 
+# Promise 9 (write path): PATCH /me under RLS. The other promise-9 test proves the read path
+# (get_profile); this proves the update path — update_profile writes the caller's OWN row
+# (RLS `with check` auth.uid() = id) and so exercises the `update` grant this PR adds to
+# profiles, which no other real-DB test would catch if it were missing.
+@requires_rls_db
+async def test_owner_can_update_own_profile_under_rls() -> None:
+    from app.db.pool import close_pool, create_pool
+    from app.db.profiles import get_profile, update_profile
+
+    admin = _require_admin_dsn()
+    a = uuid.uuid4()
+    pool = await create_pool(os.environ["RLS_DATABASE_URL"])
+    try:
+        await _admin_seed_users(admin, a)  # trigger creates the profile row
+
+        updated = await update_profile(
+            pool,
+            a,
+            display_name="Owner",
+            weight_unit="kg",
+            goal="cut to 175",
+            timezone=None,
+            set_consent=True,
+        )
+        assert updated is not None
+        assert updated["display_name"] == "Owner"
+        assert updated["weight_unit"] == "kg"
+        assert updated["goal"] == "cut to 175"
+        assert updated["consented_at"] is not None  # consent stamped
+
+        reread = await get_profile(pool, a)  # persisted and visible to its owner under RLS
+        assert reread is not None
+        assert reread["display_name"] == "Owner"
+    finally:
+        await _admin_delete_users(admin, a)
+        await close_pool(pool)
+
+
 # Promise 10: the ownerless `exercises` catalog is still readable under authed_conn(A).
 @requires_rls_db
 async def test_exercises_catalog_readable_under_identity() -> None:
-    from app.db.session import authed_conn
-
     from app.db.pool import close_pool, create_pool
+    from app.db.session import authed_conn
 
     admin = _require_admin_dsn()
     a = uuid.uuid4()
@@ -556,9 +588,8 @@ async def test_health_check_db_works_without_identity() -> None:
 # cleanly — auth.uid()==B and a normal query succeeds (no "current transaction is aborted").
 @requires_rls_db
 async def test_error_rolls_back_and_leaves_connection_clean() -> None:
-    from app.db.session import authed_conn
-
     from app.db.pool import close_pool
+    from app.db.session import authed_conn
 
     admin = _require_admin_dsn()
     a, b = uuid.uuid4(), uuid.uuid4()
