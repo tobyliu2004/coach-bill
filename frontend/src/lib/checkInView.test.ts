@@ -62,6 +62,33 @@ describe('factsView', () => {
     expect(failed.kind).not.toBe(empty.kind)
   })
 
+  // AC row 27 (NEW, Toby 2026-07-16 — found by /code-review high on PR #36): a check-in
+  // whose ONLY fact was dropped by the guard (status 'partial', zero surviving facts) must
+  // say an item was dropped — visibly distinct from "nothing found".
+  //
+  // Same failure-as-empty-state bug as #18's, one level down: 'failed' vs 'none' was
+  // guarded, 'dropped' vs 'none' was not. So the one case rows 13/26 exist for was the one
+  // case the screen said nothing about — a user's zercher squat vanishing with the UI
+  // cheerfully reporting "no facts found".
+  it("reports the dropped state for a partial check-in with zero surviving facts", () => {
+    const view = factsView(checkIn({ extraction_status: 'partial', facts: NO_FACTS }))
+
+    expect(view.kind).toBe('dropped')
+  })
+
+  // AC row 27 (the load-bearing half): 'partial'-with-nothing-left must be DISTINGUISHABLE
+  // from both "nothing found" AND "extraction failed". Asserting the literal shape above
+  // would still pass an implementation that collapsed dropped onto none — which IS the bug.
+  // So assert the distinctions themselves, exactly as the row-17/18 test does.
+  it('distinguishes a dropped-fact check-in from an empty one and from a failed one', () => {
+    const dropped = factsView(checkIn({ extraction_status: 'partial', facts: NO_FACTS }))
+    const empty = factsView(checkIn({ extraction_status: 'done', facts: NO_FACTS }))
+    const failed = factsView(checkIn({ extraction_status: 'failed', facts: NO_FACTS }))
+
+    expect(dropped.kind).not.toBe(empty.kind) // "we dropped one" is not "nothing found"
+    expect(dropped.kind).not.toBe(failed.kind) // ...and it is not "extraction failed"
+  })
+
   // AC row 18 (the other side of "no facts block"): when there ARE facts, they render.
   // Without this, `factsView` returning 'none' unconditionally would satisfy row 18.
   it("reports 'facts' when the check-in actually has extracted facts", () => {

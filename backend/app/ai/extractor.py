@@ -55,10 +55,16 @@ with reps: 8 and weight: 135.
 - set_number always starts at 1 for each exercise.
 
 EXERCISE NAMES
-- Use the plain English name of the movement, lowercase: "bench press", "squat", "pull-up".
-- Letters, spaces and hyphens ONLY. No numbers, no emails, no URLs, no punctuation, no \
-commentary. The name goes into a catalog shared by every user, so it must contain nothing \
-personal and nothing but the movement's name.
+- Use the movement's PLAIN, CANONICAL English name, lowercase and singular-ish: "bench \
+press", "squat", "pull-up", "romanian deadlift". Not a description, not a sentence, not a \
+nickname.
+- Resolve the user's shorthand to the standard name: "bench" -> "bench press", "OHP" -> \
+"overhead press", "RDL" -> "romanian deadlift", "pushups"/"push ups"/"press ups" -> \
+"pushups".
+- The name is matched against a fixed catalog of known movements. A name that isn't in it is \
+DISCARDED along with its sets, so the canonical name is what gets the user's work logged. \
+Never invent a name to be descriptive ("john's shoulder finisher"), never attach anything \
+personal, and never put anything but the movement itself in this field.
 
 SLEEP
 - hours is a number 0-24. quality is 1-5 ONLY if the person actually rates it; otherwise \

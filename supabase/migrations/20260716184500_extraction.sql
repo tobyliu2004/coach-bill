@@ -14,13 +14,13 @@
 --      exist while its facts do not (a Haiku timeout must still return 201 with the raw text
 --      intact — the text is the source of truth, facts are derived and re-runnable).
 --
---   3. `public.resolve_exercise` — the ONE write path into `exercises` (the "guarded door").
+--   3. A SEEDED canonical `exercises` catalog — and, deliberately, no write path into it.
 --
 -- CORRECTION to a stale comment: init_schema.sql:52 says the backend "(service role, which
--- bypasses RLS) creates new entries during extraction". That has been untrue since #24 —
--- there is no service role in the request path any more. Applied migrations are never
--- edited, so the correction lives here: `exercises` is written ONLY through
--- `public.resolve_exercise` below, and `authenticated` still has no direct insert on it.
+-- bypasses RLS) creates new entries during extraction". That has been untrue since #24 (no
+-- service role in the request path), and as of this migration nothing creates entries at
+-- all: the catalog is seeded here and the app only ever reads it. Applied migrations are
+-- never edited, so the correction lives here.
 
 -- ========================= 1. fact-table privileges =========================
 -- Least privilege — only the verbs the code actually uses. `delete` is required because
@@ -44,7 +44,8 @@ grant select, insert, delete on public.bodyweight_entries to authenticated;
 -- 'done'    : extraction ran; every fact it found was stored. Zero facts is STILL 'done' —
 --             "nothing to extract" is success, not failure (AC row 11), and prose alongside
 --             real facts is also 'done' (AC row 12), so 'partial' keeps meaning one thing.
--- 'partial' : a fact was found but had to be DROPPED (AC row 13 — a rejected exercise name).
+-- 'partial' : a fact was found but had to be DROPPED (AC rows 13/26 — a name that is not
+--             in the seeded catalog, so the set cannot be attached to an exercise).
 --             This is the only meaning; if it were also used for un-extractable prose, nearly
 --             every real check-in would be 'partial' and the UI's warning would cry wolf.
 -- 'failed'  : extraction itself broke (vendor down, or output that failed validation).
@@ -64,61 +65,89 @@ create index nutrition_entries_user_idx  on public.nutrition_entries  (user_id);
 create index sleep_entries_user_idx      on public.sleep_entries      (user_id);
 create index bodyweight_entries_user_idx on public.bodyweight_entries (user_id);
 
--- ========================= 4. resolve_exercise — the guarded door =========================
--- `exercises` is the ONE ownerless table: a shared catalog every user reads. That is exactly
--- what makes it dangerous — anything written here is visible to EVERYONE, and the rows are
--- named by an LLM parsing a user's free text. "bench press — hmu at toby@gmail.com" is not a
--- hypothetical; a prompt-injected or simply confused model will hand us user data eventually.
+-- ========================= 4. the canonical exercise catalog =========================
+-- `exercises` is the ONE ownerless table: a shared catalog every user reads. That is what
+-- makes it dangerous — anything written here is visible to EVERYONE, and until this
+-- migration the rows were to be named by an LLM parsing a user's free text.
 --
--- So the app never inserts into `exercises` at all. It gets no insert grant. This function is
--- the only door, and it validates before it writes:
---   * normalize  -> lower + trim + collapse internal whitespace, so "Bench Press",
---                   "bench press" and "  Bench   Press  " are ONE row (AC row 7; `name` is a
---                   case-SENSITIVE unique index, so without this the catalog fragments).
---   * validate   -> letters/spaces/hyphens only, length 1-64. Kills emails (@, .), digits,
---                   URLs (/, :) and prose. Returns NULL on reject; the caller drops that one
---                   set and marks the check-in 'partial' (AC row 13).
+-- The first design guarded that write path with a `security definer` function that
+-- validated names (letters/spaces/hyphens, 1-64 chars) before inserting. `project-reviewer`
+-- killed it on PR #36, correctly: that guard enforced the EXAMPLE in AC row 13
+-- ("bench press — hmu at toby@gmail.com", killed by rejecting @ and .) but not the RULE in
+-- .claude/rules/backend.md, which says this table must contain **no user data**. "the john
+-- smith special" is letters and spaces. It would have passed, and landed in a catalog every
+-- user reads, with no user_id to attribute it and no delete path.
 --
--- `security definer` + `set search_path = ''` copies public.handle_new_user()'s shape (the
--- existing precedent in init_schema.sql). definer = it writes with the OWNER's rights, which
--- is what lets `authenticated` create a catalog row without ever holding insert on the table.
--- The empty search_path is mandatory for a definer function: without it, a caller could put a
--- malicious schema ahead of `public` and hijack the identifiers this body resolves. Hence
--- every name below is schema-qualified and every regex is anchored.
-create function public.resolve_exercise(raw_name text)
-returns uuid
-language plpgsql
-security definer set search_path = ''
-as $$
-declare
-  clean_name text;
-  found_id   uuid;
-begin
-  if raw_name is null then
-    return null;
-  end if;
+-- So: the catalog is SEEDED, and the app has no write path into it at all. Not a better
+-- regex — no insert. `authenticated` holds `select` only (init_schema.sql), and there is no
+-- longer a `security definer` function to lend it more. The strongest form of "no user data
+-- reaches the shared catalog" is that there is nowhere for it to go.
+--
+-- That deletes a privilege boundary as well as a leak: a definer function runs with the
+-- OWNER's rights and is a classic escalation vector, which is why it needed `search_path = ''`
+-- and an anchored regex and a revoke-from-public. None of that has to be right any more,
+-- because none of it exists.
+--
+-- The accepted cost (AC row 26, ruled by Toby on 2026-07-16): a real lift that isn't seeded
+-- resolves to NULL, that set drops, and the check-in is marked 'partial'. We trade "a weird
+-- row can reach a shared table" for "some real lifts don't log". Hence a generous list.
+-- Growing it from what users actually type needs a per-user table — a separate issue.
+--
+-- Names are stored already-normalized (lowercase, single-spaced) because that is exactly the
+-- form app/db/facts.py normalizes an LLM's name INTO before looking it up. `name` is unique,
+-- so `on conflict do nothing` makes this migration safe to re-run.
 
-  -- lower + trim, then collapse any run of internal whitespace to one space.
-  clean_name := regexp_replace(lower(btrim(raw_name)), '\s+', ' ', 'g');
-
-  -- Anchored: ^...$ over the WHOLE string. An unanchored match would happily accept
-  -- "bench press — hmu at toby@gmail.com" because a valid run exists somewhere inside it.
-  if clean_name !~ '^[a-z][a-z -]*$' or length(clean_name) > 64 then
-    return null;
-  end if;
-
-  -- Concurrency-safe: two simultaneous check-ins naming the same new exercise race here.
-  -- `on conflict do nothing` lets the loser fall through to the select below rather than
-  -- raising a unique violation that would fail an otherwise-good extraction.
-  insert into public.exercises (name) values (clean_name)
-  on conflict (name) do nothing;
-
-  select id into found_id from public.exercises where name = clean_name;
-  return found_id;
-end;
-$$;
-
--- A definer function is a privilege boundary, so its EXECUTE grant is the actual gate:
--- Postgres grants execute to PUBLIC by default, which would expose the door to `anon` too.
-revoke all on function public.resolve_exercise(text) from public;
-grant execute on function public.resolve_exercise(text) to authenticated;
+insert into public.exercises (name) values
+  -- barbell — press
+  ('bench press'), ('incline bench press'), ('decline bench press'),
+  ('close-grip bench press'), ('floor press'), ('overhead press'), ('push press'),
+  ('landmine press'), ('z press'),
+  -- barbell — squat / hinge
+  ('squat'), ('back squat'), ('front squat'), ('box squat'), ('pause squat'),
+  ('deadlift'), ('sumo deadlift'), ('romanian deadlift'), ('stiff-leg deadlift'),
+  ('rack pull'), ('good morning'), ('hip thrust'), ('barbell lunge'),
+  ('split squat'), ('bulgarian split squat'), ('barbell step-up'),
+  -- barbell — pull / arms
+  ('barbell row'), ('pendlay row'), ('t-bar row'), ('upright row'), ('barbell shrug'),
+  ('barbell curl'), ('preacher curl'), ('skullcrusher'), ('barbell calf raise'),
+  -- olympic
+  ('power clean'), ('hang clean'), ('clean and jerk'), ('snatch'), ('hang snatch'),
+  ('clean pull'), ('snatch pull'), ('thruster'),
+  -- dumbbell
+  ('dumbbell bench press'), ('dumbbell incline press'), ('dumbbell shoulder press'),
+  ('arnold press'), ('dumbbell fly'), ('dumbbell pullover'), ('dumbbell row'),
+  ('renegade row'), ('dumbbell curl'), ('hammer curl'), ('concentration curl'),
+  ('tricep kickback'), ('lateral raise'), ('front raise'), ('rear delt fly'),
+  ('dumbbell shrug'), ('goblet squat'), ('dumbbell lunge'), ('dumbbell step-up'),
+  ('dumbbell deadlift'), ('dumbbell calf raise'),
+  -- cable / machine
+  ('lat pulldown'), ('seated cable row'), ('straight-arm pulldown'), ('cable fly'),
+  ('cable crossover'), ('cable curl'), ('cable lateral raise'), ('tricep pushdown'),
+  ('rope pushdown'), ('face pull'), ('pec deck'), ('chest press machine'),
+  ('shoulder press machine'), ('leg press'), ('leg extension'), ('leg curl'),
+  ('seated leg curl'), ('lying leg curl'), ('hack squat'), ('smith machine squat'),
+  ('smith machine bench press'), ('hip abduction'), ('hip adduction'),
+  ('glute kickback'), ('assisted pull-up'), ('seated calf raise'),
+  ('standing calf raise'), ('cable woodchop'),
+  -- bodyweight
+  ('pushups'), ('incline pushups'), ('decline pushups'), ('diamond pushups'),
+  ('handstand pushup'), ('pull-up'), ('chin-up'), ('neutral-grip pull-up'),
+  ('muscle-up'), ('inverted row'), ('dip'), ('bench dip'), ('air squat'),
+  ('pistol squat'), ('lunge'), ('reverse lunge'), ('walking lunge'), ('step-up'),
+  ('glute bridge'), ('single-leg glute bridge'), ('nordic curl'),
+  ('back extension'), ('superman'), ('calf raise'), ('wall sit'),
+  -- core
+  ('plank'), ('side plank'), ('sit-up'), ('crunch'), ('bicycle crunch'),
+  ('russian twist'), ('hanging leg raise'), ('hanging knee raise'), ('leg raise'),
+  ('mountain climber'), ('dead bug'), ('bird dog'), ('ab wheel rollout'),
+  ('hollow hold'),
+  -- kettlebell / strongman / conditioning
+  ('kettlebell swing'), ('kettlebell clean'), ('kettlebell snatch'),
+  ('turkish get-up'), ('farmer carry'), ('suitcase carry'), ('sled push'),
+  ('sled pull'), ('battle ropes'), ('medicine ball slam'), ('wall ball'),
+  ('box jump'), ('broad jump'), ('burpee'), ('jumping jack'), ('jump rope'),
+  -- cardio
+  ('running'), ('treadmill run'), ('sprint'), ('walking'), ('incline walk'),
+  ('cycling'), ('stationary bike'), ('rowing'), ('elliptical'),
+  ('stair climber'), ('swimming'), ('hiking')
+on conflict (name) do nothing;

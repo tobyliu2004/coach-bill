@@ -12,6 +12,7 @@ guard (backend rule 4) is the ONLY lock. Do not remove it thinking RLS has your 
 Proven against a real database by `test_row14_user_b_cannot_attach_facts_to_user_as_check_in`.
 """
 
+import re
 from collections.abc import Sequence
 from decimal import Decimal
 from typing import NamedTuple
@@ -49,19 +50,43 @@ class StoredFacts(NamedTuple):
 _FACT_TABLES = ("workout_sets", "nutrition_entries", "sleep_entries", "bodyweight_entries")
 
 
-async def resolve_exercise(conn: asyncpg.Connection, raw_name: str) -> UUID | None:
-    """The id for `raw_name` in the shared catalog, or None if the guard rejected it.
+def normalize_exercise_name(raw_name: str) -> str:
+    """Fold an LLM's exercise name into the form the catalog is stored in.
 
-    `public.resolve_exercise` is a `security definer` function and the ONLY write path into
-    `exercises` — the app holds no insert privilege on that table (see the migration). It
-    normalizes (lower/trim/collapse whitespace) so casings collapse to one row, and returns
-    NULL for anything that isn't letters/spaces/hyphens, which is what keeps user data out
-    of a catalog every user can read (AC rows 7, 13).
-
-    Takes a live `conn` rather than the pool: exercise resolution happens inside the same
-    transaction as the writes that use the returned id.
+    Lowercase, trimmed, internal whitespace collapsed — so "Bench Press", "bench press" and
+    "  Bench   Press  " are one lookup, not three (AC row 7). Pure, so it's cheap to test and
+    impossible to get subtly wrong against a live database.
     """
-    exercise_id: UUID | None = await conn.fetchval("select public.resolve_exercise($1)", raw_name)
+    return re.sub(r"\s+", " ", raw_name.strip().lower())
+
+
+async def resolve_exercise(conn: asyncpg.Connection, raw_name: str) -> UUID | None:
+    """The id of `raw_name` in the seeded catalog, or None if it isn't one (AC rows 7/13/24/26).
+
+    A READ. Not a guarded write — a read.
+
+    `exercises` is the ONE ownerless table: a shared catalog every user can select from, with
+    no `user_id` to attribute a row to anyone. Its rows would otherwise be named by an LLM
+    parsing a user's free text, so `backend.md` requires it contain **no user data**. The
+    first design enforced that with a validating `security definer` function that inserted
+    unknown names. It was wrong: it rejected AC row 13's *example* (an email — killed by
+    banning `@` and `.`) but not the *category* the rule names. "the john smith special" is
+    letters and spaces.
+
+    So there is no write path at all now. The catalog is seeded by the migration, this
+    function only looks names up, and `authenticated` holds `select` on `exercises` and
+    nothing else. A name that isn't in the catalog returns None, the caller drops that set,
+    and the check-in is marked 'partial'. Nothing a user can type reaches this table, because
+    there is nowhere for it to go — which is a stronger guarantee than any regex, and it
+    deleted a `security definer` privilege boundary (and its `search_path` trap) along with it.
+
+    Takes a live `conn` rather than the pool: resolution happens inside the same transaction
+    as the writes that use the returned id.
+    """
+    exercise_id: UUID | None = await conn.fetchval(
+        "select id from public.exercises where name = $1",
+        normalize_exercise_name(raw_name),
+    )
     return exercise_id
 
 
@@ -106,8 +131,10 @@ async def replace_facts(
         for exercise_name, set_number, reps, weight_kg in sets:
             exercise_id = await resolve_exercise(conn, exercise_name)
             if exercise_id is None:
-                # The guard rejected this name. Drop THIS set and keep going — one bad
-                # name must not cost the user the rest of their check-in (AC row 13).
+                # Not in the seeded catalog — either a name no user should reach the shared
+                # table with (AC row 13) or a real lift we haven't seeded (AC row 26, the
+                # accepted cost). Drop THIS set and keep going: one unrecognized name must
+                # not cost the user the rest of their check-in.
                 continue
             new_id: UUID | None = await conn.fetchval(
                 "insert into public.workout_sets "
