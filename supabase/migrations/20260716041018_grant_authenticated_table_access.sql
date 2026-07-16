@@ -25,6 +25,5 @@
 -- way it adds RLS + an owner-only policy (see .claude/rules/schema.md). A missing grant fails
 -- closed and loud (permission denied in tests), never as a silent leak.
 
-grant select, insert, delete on public.check_ins to authenticated;
 grant select, update         on public.profiles  to authenticated;
 grant select                 on public.exercises to authenticated;
