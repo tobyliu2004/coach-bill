@@ -21,3 +21,4 @@ end
 $$;
 
 grant authenticated to coach_app;
+-- SCRATCH: schema-only edit to prove the `schema` filter triggers rls-tests. DO NOT MERGE.
