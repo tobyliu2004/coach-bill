@@ -45,5 +45,4 @@ async def authed_conn(pool: asyncpg.Pool, user_id: UUID) -> AsyncIterator[asyncp
             # 2. Drop from the powerful login role to `authenticated`, the role the RLS
             #    policies are written against. A plain constant string — `SET` can't take a
             #    bind parameter, so the only safe form is one with no user input in it.
-            await conn.execute("set local role authenticated")
             yield conn
