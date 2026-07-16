@@ -43,6 +43,10 @@ def _check_in_row(**overrides: Any) -> dict[str, Any]:
         "source": "text",
         "entry_date": date(2026, 7, 15),
         "created_at": CREATED_AT,
+        # Added by issue #19: the column now exists on every check_ins row, so a fake row
+        # without it isn't a row this app can return. Fixture only — no assertion in this
+        # file reads it (#19's own oracle covers what the statuses MEAN).
+        "extraction_status": "pending",
     }
     row.update(overrides)
     return row
@@ -232,8 +236,12 @@ async def test_get_returns_todays_check_ins_in_order(client: AsyncClient) -> Non
         raw_text="older",
         created_at=CREATED_AT - timedelta(hours=2),
     )
-    # responses: [timezone read, list rows already ordered newest-first by the db]
-    pool = _sign_in(["UTC", [newest, older]])
+    # responses: [timezone read, list rows already ordered newest-first by the db, then the
+    # four bundled fact reads added by issue #19 (workout_sets, nutrition_entries,
+    # sleep_entries, bodyweight_entries) — empty here; this test is about ORDER, and the
+    # facts themselves are #19's oracle to assert. They pop AFTER calls[1], so every
+    # assertion below is untouched.
+    pool = _sign_in(["UTC", [newest, older], [], [], [], []])
 
     resp = await client.get("/check-ins")
 
