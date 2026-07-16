@@ -54,6 +54,15 @@ function Facts({ checkIn, unit }: { checkIn: CheckIn; unit: 'lb' | 'kg' }) {
       </p>
     )
   }
+  // Something was found and then dropped, and nothing else survived. Distinct from 'none':
+  // there IS something to say. Silence here would be a lie of omission.
+  if (view.kind === 'dropped') {
+    return (
+      <p role="alert" className="mt-3 border-t border-edge pt-3 font-mono text-xs text-fg-muted">
+        Bill couldn’t read that exercise, so nothing was logged. Your words are saved.
+      </p>
+    )
+  }
   // Nothing to extract is SUCCESS (Toby's row-11 call) — render the text and stop. No block,
   // no error, nothing that implies something went wrong.
   if (view.kind === 'none') return null

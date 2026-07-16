@@ -66,9 +66,12 @@ async def list_check_ins(pool: asyncpg.Pool, user_id: UUID) -> list[CheckInOut]:
     if not rows:
         return []
 
-    # One batched fact read for the whole list, not one per check-in.
+    # One batched fact read for the whole list, not one per check-in...
     by_table = await facts_db.list_facts_for_check_ins(pool, user_id, [r["id"] for r in rows])
-    return [CheckInOut(**dict(row), facts=_facts_for(by_table, row["id"])) for row in rows]
+    # ...and one pass to index it. Filtering the full result list once per check-in would
+    # reintroduce, in memory, the same N+1 shape the batched read exists to avoid.
+    grouped = _group_by_check_in(by_table)
+    return [CheckInOut(**dict(row), facts=_facts_for(grouped, row["id"])) for row in rows]
 
 
 async def delete_check_in(pool: asyncpg.Pool, user_id: UUID, check_in_id: UUID) -> bool:
@@ -79,11 +82,26 @@ async def delete_check_in(pool: asyncpg.Pool, user_id: UUID, check_in_id: UUID) 
     return await check_ins_db.delete_check_in(pool, user_id, check_in_id)
 
 
-def _facts_for(by_table: dict[str, list[asyncpg.Record]], check_in_id: UUID) -> CheckInFacts:
-    """Pick one check-in's facts out of the batched read."""
+def _group_by_check_in(
+    by_table: dict[str, list[asyncpg.Record]],
+) -> dict[str, dict[UUID, list[asyncpg.Record]]]:
+    """Index the batched fact read by check-in id, in one pass per table."""
+    grouped: dict[str, dict[UUID, list[asyncpg.Record]]] = {}
+    for table, records in by_table.items():
+        table_index: dict[UUID, list[asyncpg.Record]] = {}
+        for record in records:
+            table_index.setdefault(record["check_in_id"], []).append(record)
+        grouped[table] = table_index
+    return grouped
+
+
+def _facts_for(
+    grouped: dict[str, dict[UUID, list[asyncpg.Record]]], check_in_id: UUID
+) -> CheckInFacts:
+    """Pick one check-in's facts out of the indexed read."""
 
     def rows(table: str) -> list[asyncpg.Record]:
-        return [r for r in by_table[table] if r["check_in_id"] == check_in_id]
+        return grouped[table].get(check_in_id, [])
 
     return CheckInFacts(
         sets=[

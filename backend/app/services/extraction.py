@@ -136,9 +136,23 @@ async def extract_and_store(
         ],
     )
 
-    # A set that went in but didn't come back was rejected by the guard — the ONE thing
-    # 'partial' means. Everything else, including finding nothing at all, is 'done'.
-    dropped_any = len(stored.sets) != len(requested_sets)
+    # Anything that went in but didn't come back was dropped — the ONE thing 'partial'
+    # means. Everything else, including finding nothing at all, is 'done'.
+    #
+    # Checked across ALL FOUR tables, not just sets. Only sets can be dropped by the
+    # exercise guard today, so the other three can only come up short if the rule-4
+    # parent-ownership guard blocked the insert — unreachable right now, because POST mints
+    # its own check_in_id and always owns it. It's checked anyway because `extract_and_store`
+    # is the durable choke point every future path to a fact row goes through (that is
+    # precisely why row 14 is tested here rather than at an endpoint). The security guard is
+    # durable; this status must be too, or the day a re-run endpoint lands, a caller aiming
+    # at someone else's check-in gets a cheerful 'done' with nothing written.
+    dropped_any = (
+        len(stored.sets) != len(requested_sets)
+        or len(stored.nutrition) != len(nutrition)
+        or len(stored.sleep) != len(sleep)
+        or len(stored.bodyweight) != len(bodyweight)
+    )
     return (_STATUS_PARTIAL if dropped_any else _STATUS_DONE), facts
 
 

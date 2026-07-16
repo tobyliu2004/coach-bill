@@ -7,7 +7,7 @@ We record whether a *real* DATABASE_URL was provided so the integration test can
 """
 
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -24,7 +24,7 @@ os.environ.setdefault("ANTHROPIC_API_KEY", "sk-ant-test-not-a-real-key")
 
 
 @pytest.fixture(autouse=True)
-def no_live_model() -> AsyncIterator[None]:
+def no_live_model() -> Iterator[None]:
     """Default EVERY unit test to a do-nothing Extractor — the network is never reachable.
 
     Without this, any test that POSTs a check-in without overriding `get_extractor` builds

@@ -20,6 +20,12 @@ export type FactsView =
   | { kind: 'failed' }
   /** Extraction ran and found nothing. Success: render the text, no block, NO error. */
   | { kind: 'none' }
+  /** Something WAS found and then dropped by the guard, and nothing else survived. Distinct
+   *  from `none`: there is something to apologise for. Without this, a check-in whose only
+   *  fact was a rejected exercise name renders identically to "nothing to extract" and the
+   *  user is never told anything was lost — the same failure-as-empty-state bug as `failed`
+   *  vs `none`, one level down. */
+  | { kind: 'dropped' }
   /** Extraction found facts. `partial` rides along: some facts landed, but one item didn't
    *  read, and the user is told so rather than silently shown a short list. */
   | { kind: 'facts'; facts: CheckIn['facts']; partial: boolean }
@@ -56,8 +62,14 @@ export function factsView(checkIn: CheckIn): FactsView {
   // on emptiness first would collapse it into `none` — the bug this function exists to
   // prevent.
   if (checkIn.extraction_status === 'failed') return { kind: 'failed' }
-  if (!hasFacts(checkIn.facts)) return { kind: 'none' }
-  return { kind: 'facts', facts: checkIn.facts, partial: checkIn.extraction_status === 'partial' }
+
+  const partial = checkIn.extraction_status === 'partial'
+  if (!hasFacts(checkIn.facts)) {
+    // 'partial' means a fact was found and then dropped. If NOTHING survived, "no facts"
+    // would be a lie of omission — the user had something to log and we threw it away.
+    return partial ? { kind: 'dropped' } : { kind: 'none' }
+  }
+  return { kind: 'facts', facts: checkIn.facts, partial }
 }
 
 export function errorAction(error: unknown): ErrorAction {
