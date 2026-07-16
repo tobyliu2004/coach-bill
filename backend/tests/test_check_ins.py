@@ -56,10 +56,33 @@ def _check_in_row(**overrides: Any) -> dict[str, Any]:
 # pops the next primed value and records (query, args), so pool.conn.calls preserves order.
 
 
+# db functions now run inside `authed_conn`, which opens a transaction and issues two
+# identity `execute`s (set_config, set local role) before the real query. The fake grows a
+# no-op `transaction()` + `execute()`; identity statements land in `identity_calls`, never in
+# `calls`, so `calls` still holds ONLY the real queries in order and every existing assertion
+# (including the exact indexes and `calls == []`) stays exactly as strong.
+
+
+class _FakeTxn:
+    async def __aenter__(self) -> None:
+        return None
+
+    async def __aexit__(self, *exc_info: object) -> bool:
+        return False
+
+
 class _FakeConn:
     def __init__(self, responses: list[Any]) -> None:
         self._responses = list(responses)
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
+        self.identity_calls: list[tuple[str, tuple[Any, ...]]] = []
+
+    def transaction(self) -> _FakeTxn:
+        return _FakeTxn()
+
+    async def execute(self, query: str, *args: Any) -> str:
+        self.identity_calls.append((query, args))  # authed_conn's set_config / set role
+        return "OK"
 
     def _next(self) -> Any:
         return self._responses.pop(0) if self._responses else None

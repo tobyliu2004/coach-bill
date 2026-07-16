@@ -10,12 +10,18 @@ makes this checklist *advisory*: it only protects us if it actually gets run. Ru
 
 ## The threat model in one paragraph
 
-The FastAPI backend connects to Postgres as the **`postgres` role, which has `BYPASSRLS`**. Row-
-Level Security policies exist on every table, but on the server path they do **nothing** — they
-only protect the browser's anon-key path. (This is a property of the *role*, not the pooler mode;
-switching pooler modes does not re-engage RLS.) The JWT-verified user id is therefore the *only*
-thing separating one user's data from another's, and it is only doing that job when it appears in
-the SQL statement itself.
+The FastAPI backend runs every query inside `authed_conn` (`app/db/session.py`) as a dedicated
+**non-BYPASSRLS** role, with the caller's verified identity set on the transaction. So the owner-
+only RLS policies on every table **are enforced on the server path**: a statement missing its
+`user_id` filter returns zero rows instead of everyone's. RLS is the database-enforced **second
+lock** (issue #24).
+
+It does **not** retire this checklist. The explicit `user_id` filter is still the **first lock**
+and stays mandatory — RLS is the net, not the plan, and only the in-statement filter gives a
+**404** (not a silently-empty result) for a row the caller doesn't own. **Report a missing filter
+as a finding even though RLS would now contain the blast radius:** defense in depth means neither
+lock may be the only one. (Historically the backend connected as `postgres`/`BYPASSRLS`, where the
+filter was the *only* boundary; that changed, the discipline did not.)
 
 Treat any of the following as **high severity**, because each one is a cross-user data leak:
 
@@ -86,5 +92,7 @@ it and is readable by everyone.
 - Auth changes that weaken JWT verification: signature, `alg` (algorithm confusion), issuer, or
   audience checks skipped, loosened, or made optional.
 - Schema migrations that add a user-owned table **without** `user_id` → `auth.users`, RLS enabled,
-  and an owner-only policy. RLS is the second lock — the one that saves us the day something
-  queries with the anon key.
+  an owner-only policy, **and** a `grant … to authenticated` scoped to the verbs the code uses. RLS
+  is the second lock, now enforced on the server path; without the grant the backend's role can't
+  reach the table (it fails closed), but the table is still incomplete. A grant broader than the
+  code needs (e.g. `all` when only `select` is used) is worth flagging.

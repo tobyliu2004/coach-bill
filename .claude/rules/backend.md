@@ -12,13 +12,21 @@ security rules: `/me` takes no resource id, so it never exercises the ownership 
 
 ## Security — the rules that stop a cross-user data leak
 
-We connect to Postgres as the **`postgres` role, which has `BYPASSRLS`**. (It's the role, not the
-pooler mode — switching pooler modes does not re-engage RLS.) The RLS policies in the schema
-protect the *browser's* anon-key path. On the server they do nothing. **The JWT-verified user id
-is the only thing separating one user's data from another's.**
+Every db query runs inside `authed_conn` (`app/db/session.py`) as a dedicated **non-BYPASSRLS**
+role, with the caller's verified identity set on the transaction. So the owner-only RLS policies
+on every table **are now enforced on the server path**: a query that forgets its `user_id` filter
+returns **zero rows**, not everyone's. That is the database-enforced **second lock** (issue #24).
 
-You still enable RLS + an owner-only policy on every new table (`schema.md`). It's the second
-lock — the one that saves you the day something queries with the anon key.
+**This does not replace the rules below — it backs them up.** The explicit `where user_id = $2`
+filter is still the **first lock** and stays mandatory in every statement, for three reasons: it
+is the primary boundary (RLS is the net, not the plan); it gives the right semantics (a targeted
+row you don't own is a **404**, not a silently-empty result); and defense in depth means neither
+lock may be the only one. Write every query as if RLS were off — then RLS catches the day you slip.
+
+New tables therefore need *both*: the `where user_id` discipline below **and** RLS + an owner-only
+policy + a `grant ... to authenticated` (`schema.md`). (Historically the backend connected as
+`postgres`, which BYPASSES RLS, making these filters the *only* boundary. No longer true — but the
+discipline is unchanged, so all six rules stand exactly as written.)
 
 **1. `UserIdDep` is the only trustworthy source of a user id.** Never take a user id from a
 request body, path param, or query string.
