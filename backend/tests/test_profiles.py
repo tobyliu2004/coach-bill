@@ -36,13 +36,33 @@ def _profile_row(**overrides: Any) -> dict[str, Any]:
     return row
 
 
-# --- fake pool that records fetchrow calls: `async with pool.acquire() as conn` ---
+# --- fake pool that records fetchrow calls: db functions now run inside `authed_conn`,
+# which opens a transaction and runs two identity `execute`s before the real query. The
+# fake therefore grows a no-op `transaction()` + `execute()`; the identity statements are
+# recorded separately in `identity_calls` so `calls` still holds ONLY the real query and
+# every existing index-based assertion stays exactly as strong.
+
+
+class _FakeTxn:
+    async def __aenter__(self) -> None:
+        return None
+
+    async def __aexit__(self, *exc_info: object) -> bool:
+        return False
 
 
 class _FakeConn:
     def __init__(self, row: dict[str, Any] | None) -> None:
         self._row = row
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
+        self.identity_calls: list[tuple[str, tuple[Any, ...]]] = []
+
+    def transaction(self) -> _FakeTxn:
+        return _FakeTxn()
+
+    async def execute(self, query: str, *args: Any) -> str:
+        self.identity_calls.append((query, args))  # authed_conn's set_config / set role
+        return "OK"
 
     async def fetchrow(self, query: str, *args: Any) -> dict[str, Any] | None:
         self.calls.append((query, args))
