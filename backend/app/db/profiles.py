@@ -1,16 +1,19 @@
-"""Profile queries. Every statement filters on the verified user id — the pooler role
-bypasses RLS, so this filter is the security boundary (see app/auth.py)."""
+"""Profile queries. Every statement filters on the verified user id (the first lock) AND
+runs inside `authed_conn`, which sets the caller's identity so the owner-only RLS policy
+engages as a second, database-enforced lock (see app/db/session.py)."""
 
 from uuid import UUID
 
 import asyncpg
+
+from app.db.session import authed_conn
 
 _COLUMNS = "id, display_name, weight_unit, goal, timezone, consented_at, created_at"
 
 
 async def get_profile(pool: asyncpg.Pool, user_id: UUID) -> asyncpg.Record | None:
     """The caller's profile row, or None if it doesn't exist."""
-    async with pool.acquire() as conn:
+    async with authed_conn(pool, user_id) as conn:
         row: asyncpg.Record | None = await conn.fetchrow(
             f"select {_COLUMNS} from public.profiles where id = $1",
             user_id,
@@ -21,7 +24,7 @@ async def get_profile(pool: asyncpg.Pool, user_id: UUID) -> asyncpg.Record | Non
 async def get_user_timezone(pool: asyncpg.Pool, user_id: UUID) -> str | None:
     """The caller's IANA timezone, or None (missing row or NULL tz). Callers fall back
     to UTC — see app/time.local_today. Scoped to the verified id like every read here."""
-    async with pool.acquire() as conn:
+    async with authed_conn(pool, user_id) as conn:
         tz: str | None = await conn.fetchval(
             "select timezone from public.profiles where id = $1",
             user_id,
@@ -44,7 +47,7 @@ async def update_profile(
     consented_at only ever moves from null to now() — consent is stamped once, never
     re-stamped or cleared by later updates.
     """
-    async with pool.acquire() as conn:
+    async with authed_conn(pool, user_id) as conn:
         row: asyncpg.Record | None = await conn.fetchrow(
             f"""
             update public.profiles
