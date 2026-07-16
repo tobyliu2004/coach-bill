@@ -114,8 +114,11 @@ class HaikuExtractor:
     reps = -1 still raises `ValidationError` here rather than reaching Postgres (AC row 10).
     """
 
-    def __init__(self, client: AsyncAnthropic) -> None:
-        self._client = client
+    def __init__(self, client: AsyncAnthropic | None = None) -> None:
+        # Defaults to the shared process-wide client, so `HaikuExtractor()` just works
+        # (that's how the live-model tests construct it). Still injectable for anything
+        # that needs a differently-configured client.
+        self._client = client if client is not None else _client()
 
     async def extract(self, text: str) -> ExtractedFacts:
         response = await self._client.messages.parse(
@@ -151,7 +154,7 @@ def _client() -> AsyncAnthropic:
 def get_extractor() -> Extractor:
     """Dependency: hand the route the live extractor. Tests override this (see
     `app.dependency_overrides`) so CI never spends a token."""
-    return HaikuExtractor(_client())
+    return HaikuExtractor()
 
 
 ExtractorDep = Annotated[Extractor, Depends(get_extractor)]
