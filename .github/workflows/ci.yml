@@ -54,6 +54,42 @@ jobs:
       - name: Tests (unit; real-DB integration test auto-skips without DATABASE_URL)
         run: uv run pytest -q
 
+  # The RLS proofs (backend/tests/test_rls_identity.py) skip unless RLS_DATABASE_URL is set.
+  # This job boots a real Postgres via the Supabase CLI so they actually execute and gate merges.
+  # It needs the Supabase platform scaffolding (auth schema/table, auth.uid(), authenticated role)
+  # that a bare postgres:16 lacks; `supabase start` applies migrations + seed.sql (which creates
+  # the non-BYPASSRLS coach_app role the code under test connects as).
+  rls-tests:
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Boot local Postgres (applies migrations + seed.sql, creates coach_app)
+        working-directory: .            # supabase/ lives at repo root, not backend/
+        run: supabase start
+      - uses: astral-sh/setup-uv@v8.2.0
+      - name: Install dependencies (locked)
+        run: uv sync --locked
+      - name: Run the full suite WITH a real DB (gated tests now execute)
+        env:
+          # Non-BYPASSRLS app role from supabase/seed.sql — the code under test uses this.
+          RLS_DATABASE_URL: postgresql://coach_app:coach_app_dev_pw@127.0.0.1:54322/postgres
+          # Privileged conn used ONLY by fixtures to seed auth.users / exercises.
+          RLS_ADMIN_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+          # Presence of DATABASE_URL flips HAS_REAL_DB in conftest.py, so the OTHER gated
+          # integration tests (test_check_ins, test_health) also run. Point at the admin conn
+          # to reproduce the documented local `uv run --env-file .env pytest` semantics.
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+          SUPABASE_URL: https://test.supabase.co
+        run: uv run pytest -q
+
   frontend:
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
@@ -79,13 +115,13 @@ jobs:
 
   # The single required check. Green only when everything that needed to run succeeded.
   ci-ok:
-    needs: [changes, backend, frontend]
+    needs: [changes, backend, frontend, rls-tests]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Verify all results are success or skipped
         run: |
-          results="${{ needs.changes.result }} ${{ needs.backend.result }} ${{ needs.frontend.result }}"
+          results="${{ needs.changes.result }} ${{ needs.backend.result }} ${{ needs.frontend.result }} ${{ needs.rls-tests.result }}"
           echo "job results: $results"
           for r in $results; do
             case "$r" in
