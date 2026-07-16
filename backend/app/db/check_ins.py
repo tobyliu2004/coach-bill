@@ -12,7 +12,7 @@ import asyncpg
 
 from app.db.session import authed_conn
 
-_COLUMNS = "id, raw_text, source, entry_date, created_at"
+_COLUMNS = "id, raw_text, source, entry_date, created_at, extraction_status"
 
 
 async def insert_check_in(
@@ -48,6 +48,27 @@ async def list_check_ins_for_date(
             entry_date,
         )
         return rows
+
+
+async def set_extraction_status(
+    pool: asyncpg.Pool, user_id: UUID, check_in_id: UUID, status: str
+) -> None:
+    """Stamp the outcome of extraction on the caller's check-in.
+
+    A separate statement from the INSERT because extraction happens *between* them: the row
+    is saved as 'pending' first so a crash or a dead vendor still leaves the raw text on
+    disk (AC row 9). `id` AND `user_id` in the same statement, as with every targeted write.
+
+    No RETURNING: the caller already knows the status it just asked for, so reading the row
+    back would be a round trip that can only tell it what it told us.
+    """
+    async with authed_conn(pool, user_id) as conn:
+        await conn.execute(
+            "update public.check_ins set extraction_status = $1 where id = $2 and user_id = $3",
+            status,
+            check_in_id,
+            user_id,
+        )
 
 
 async def delete_check_in(pool: asyncpg.Pool, user_id: UUID, check_in_id: UUID) -> bool:
