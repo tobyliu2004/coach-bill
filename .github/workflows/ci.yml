@@ -13,6 +13,13 @@ on:
   push:
     branches: [main]
 
+# Cancel superseded runs on the same ref. Matters now that rls-tests pulls and boots real Docker
+# images: without this, pushing twice in a minute leaves two Postgres stacks booting in parallel.
+# PRs only — a push to main must always finish, since main's runs record the state of the branch.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   changes:
     runs-on: ubuntu-latest
@@ -21,6 +28,7 @@ jobs:
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
+      schema: ${{ steps.filter.outputs.schema }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v4
@@ -32,6 +40,14 @@ jobs:
               - '.github/workflows/ci.yml'
             frontend:
               - 'frontend/**'
+              - '.github/workflows/ci.yml'
+            # The database surface. Kept SEPARATE from `backend` on purpose: the RLS behavior
+            # under test lives in these files (policies, grants, seed.sql), so a schema-only PR
+            # must still run the RLS proofs — but it has no Python for ruff/mypy/unit to check.
+            # Folding these into `backend` would also silently mis-trigger any FUTURE job gated
+            # on `backend` for PRs that touch no backend code at all.
+            schema:
+              - 'supabase/**'
               - '.github/workflows/ci.yml'
 
   backend:
@@ -57,12 +73,19 @@ jobs:
   # The RLS proofs (backend/tests/test_rls_identity.py) skip unless RLS_DATABASE_URL is set.
   # This job boots a real Postgres via the Supabase CLI so they actually execute and gate merges.
   # It needs the Supabase platform scaffolding (auth schema/table, auth.uid(), authenticated role)
-  # that a bare postgres:16 lacks; `supabase start` applies migrations + seed.sql (which creates
+  # that a bare postgres image lacks; `supabase start` applies migrations + seed.sql (which creates
   # the non-BYPASSRLS coach_app role the code under test connects as).
+  #
+  # Runs on `backend` OR `schema`: the code under test is in backend/, but the RLS policies and
+  # grants it proves live in supabase/ — a schema-only PR is exactly the case that must not slip
+  # through green (that is the whole point of issue #31).
   rls-tests:
     needs: changes
-    if: needs.changes.outputs.backend == 'true'
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.schema == 'true'
     runs-on: ubuntu-latest
+    # Everything else here finishes in seconds; this job pulls and boots real Docker images, so
+    # it is the only one that can hang. Fail it loudly instead of burning the 6h default.
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: backend
@@ -70,7 +93,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          # Pinned, not `latest`: this job is a REQUIRED gate, so an upstream CLI release must
+          # never be able to change what it does (or break it) with no diff on our side.
+          # 2.109.1 is the version the job was first proven green on. Bump deliberately.
+          version: 2.109.1
       - name: Boot local Postgres (applies migrations + seed.sql, creates coach_app)
         working-directory: .            # supabase/ lives at repo root, not backend/
         run: supabase start
