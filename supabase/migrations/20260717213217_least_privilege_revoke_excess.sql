@@ -2,19 +2,24 @@
 -- anon / service_role are never in the app's connection path -> they need NOTHING on app
 -- tables. authenticated (which coach_app runs as) keeps only the read/write verbs granted in
 -- #24/#19; TRUNCATE above all is removed (RLS-bypassing + unrecoverable), plus the unused
--- REFERENCES / TRIGGER / MAINTENANCE. Both halves — existing tables AND the future-table
+-- REFERENCES / TRIGGER / MAINTAIN. Both halves — existing tables AND the future-table
 -- default template (keyed to owner role `postgres`, verified via pg_default_acl) — or a 9th
 -- table silently reacquires the excess. Idempotent (revoke of an absent priv is a no-op).
+-- SCOPE: the default-privileges half is keyed to `postgres` on purpose — that is the role our
+-- migrations run as (`supabase db push` / the `supabase start` CI job), so every table WE
+-- create is covered. A table created by a different owner (e.g. a dashboard table owned by
+-- `supabase_admin`) sits under a different pg_default_acl entry this does not touch; we don't
+-- create tables that way, but grant explicitly per schema.md if that ever changes.
 --
 -- Why TRUNCATE is the headline: RLS only governs SELECT/INSERT/UPDATE/DELETE, so the issue
 -- #24 "second lock" does NOT apply to it — a role holding TRUNCATE wipes a whole table
 -- regardless of any owner-only policy. Supabase's default ACL handed it (plus REFERENCES /
--- TRIGGER / MAINTENANCE) to anon/authenticated/service_role on every table, and `anon` held
+-- TRIGGER / MAINTAIN) to anon/authenticated/service_role on every table, and `anon` held
 -- it without even SELECT. coach_app inherits it via `authenticated`. Backups are zero (#26),
 -- so this closed the gap between "impersonate one user" and "erase the product".
 
 -- anon / service_role are never in the request path: revoke EVERYTHING. `revoke all` is
--- version-proof and total (covers MAINTENANCE without naming it, on PGs that lack the keyword).
+-- version-proof and total (covers MAINTAIN without naming it, so it holds even on a PG <17).
 revoke all on all tables in schema public from anon, service_role;
 alter default privileges for role postgres in schema public
   revoke all on tables from anon, service_role;
