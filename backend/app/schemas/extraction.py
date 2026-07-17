@@ -24,10 +24,11 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from app.schemas.check_ins import Meal
 
-# The exercise name the model read out of the text. Length only — the real gate is
-# `public.resolve_exercise` (the guarded door), which normalizes and validates the charset
-# before anything reaches the shared `exercises` catalog. Doing charset validation here too
-# would be a second, drifting copy of that rule; the door is the single source of truth.
+# The exercise name the model read out of the text. Length only — no charset rule here, on
+# purpose. The name is looked up in the SEEDED `exercises` catalog (db/facts.py); a name that
+# isn't a catalogued movement resolves to nothing and its sets drop. There is no write path
+# into that table at all, so there is no shape to police: the catalog decides what exists,
+# and duplicating that judgement here would just be a second copy of it, drifting.
 _ExerciseName = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)
 ]

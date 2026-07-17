@@ -2,7 +2,8 @@
 
 The three judgment calls all live here, not in db/ and not in the route:
   * units   — the model reports the number as written; only the PROFILE knows lb vs kg
-  * the guard — exercise names go through `public.resolve_exercise` (in db/facts.py)
+  * the catalog — exercise names are looked up in the seeded `exercises` catalog
+    (db/facts.py); an unknown name drops its sets and marks the check-in 'partial'
   * status  — what 'done' / 'partial' / 'failed' mean (see `_STATUS_*` below)
 """
 
@@ -35,7 +36,7 @@ _KG_PLACES = Decimal("0.001")
 # prose it correctly ignored ("...and my boss is annoying"). Both are the model succeeding.
 _STATUS_DONE = "done"
 # 'partial' means exactly one thing: a fact WAS found but had to be thrown away, because
-# the guard rejected its exercise name. Keeping this meaning narrow is what lets the UI
+# its exercise isn't in the seeded catalog. Keeping this meaning narrow is what lets the UI
 # say "one item didn't read" and be believed — if ordinary prose made a check-in partial,
 # nearly every real check-in would be partial and the warning would be noise.
 _STATUS_PARTIAL = "partial"
@@ -68,7 +69,7 @@ async def extract_and_store(
     `extraction_status` to stamp and exactly what was stored.
 
     Returning the facts (rather than making the caller re-SELECT them) keeps POST at zero
-    extra reads: we just wrote these rows and know which ones the guard dropped.
+    extra reads: we just wrote these rows and know which ones were dropped.
 
     Raises whatever the extractor raises (vendor error, validation error) — the caller
     turns that into 'failed' and keeps the text. Nothing is written when it raises, so a
@@ -139,8 +140,8 @@ async def extract_and_store(
     # Anything that went in but didn't come back was dropped — the ONE thing 'partial'
     # means. Everything else, including finding nothing at all, is 'done'.
     #
-    # Checked across ALL FOUR tables, not just sets. Only sets can be dropped by the
-    # exercise guard today, so the other three can only come up short if the rule-4
+    # Checked across ALL FOUR tables, not just sets. Only sets can be dropped by an
+    # unknown exercise name today, so the other three can only come up short if the rule-4
     # parent-ownership guard blocked the insert — unreachable right now, because POST mints
     # its own check_in_id and always owns it. It's checked anyway because `extract_and_store`
     # is the durable choke point every future path to a fact row goes through (that is

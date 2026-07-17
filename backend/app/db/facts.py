@@ -105,8 +105,8 @@ async def replace_facts(
 ) -> StoredFacts:
     """Replace this check-in's derived facts with the ones given, and return what landed.
 
-    A `set` that comes back missing was rejected by the guard — that is what the caller
-    turns into 'partial'.
+    A `set` that comes back missing named an exercise that isn't in the seeded catalog —
+    that is what the caller turns into 'partial'.
 
     REPLACE, not append: extraction is re-runnable and the fact tables have no unique
     constraint to upsert against, so a second run that only inserted would silently double
@@ -114,8 +114,8 @@ async def replace_facts(
     two must not leave the check-in with no facts, and a concurrent reader must never see
     the empty gap.
 
-    `sets` carries the exercise's raw NAME, not an id: ids only exist on the far side of the
-    guard, and the guard has to run inside this transaction.
+    `sets` carries the exercise's raw NAME, not an id: the catalog lookup that turns one into
+    the other has to run inside this transaction, alongside the writes that use it.
     """
     stored = StoredFacts(sets=[], nutrition=[], sleep=[], bodyweight=[])
     async with authed_conn(pool, user_id) as conn:

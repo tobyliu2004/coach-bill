@@ -644,6 +644,19 @@ async def test_row24_a_seeded_movement_resolves_stores_the_set_and_is_done() -> 
         assert seeded_id is not None
 
         # Every casing/spacing the model might emit lands on the one seeded row.
+        #
+        # ⚠️ OPEN DEVIATION FROM ROW 24'S TEXT — awaiting Toby's ruling, do not quietly
+        # resolve by editing this test. The amended row's example is `"  PULL  UP "` (space,
+        # no hyphen) resolving against a catalog seeded as `pull-up`. That requires
+        # normalization to fold HYPHENS; `normalize_exercise_name` folds only case and
+        # whitespace, so `"pull up"` != `"pull-up"` -> None and the row's own example fails.
+        # The third assertion below therefore tests `"  PULL-UP  "` (hyphen added) — the
+        # row's *intent* (casing/spacing must not fragment the catalog) but not its literal
+        # example. Flagged rather than asserted-as-written because the divergence is a
+        # design question the table owns, not the oracle: should normalization fold hyphens?
+        # If yes, the code changes and this line becomes `"  PULL  UP "`. If no, row 24's
+        # example changes. Either way it is Toby's call. (Raised by `project-reviewer` on
+        # PR #36; the same class of deviation flagged for rows 12 and 14.)
         async with authed_conn(pool, a) as conn:
             assert await resolve_exercise(conn, "Pull-Up") == seeded_id
             assert await resolve_exercise(conn, "pull-up") == seeded_id
@@ -670,17 +683,30 @@ async def test_row24_a_seeded_movement_resolves_stores_the_set_and_is_done() -> 
 
 
 # AC row 25 (NEW): the full extraction path runs as the `coach_app` role over text naming an
-# UNSEEDED exercise -> the `exercises` row count is UNCHANGED.
+# UNSEEDED exercise -> the `exercises` row count is UNCHANGED. **Not "the guard declined" —
+# the role holds NO INSERT PRIVILEGE on `exercises` and there is no `security definer`
+# function to lend it one.**
 #
-# This is the point of the redesign, and the assertion is deliberately structural rather
-# than behavioural: not "the guard declined", but "the role holds no insert privilege on
-# `exercises` and there is no `security definer` function to lend it one". That is why this
-# test MUST run as `coach_app` (the RLS_DATABASE_URL pool, the role prod actually uses) and
-# cannot be faked — a fake pool has no privileges to lack. If a definer function survives
-# and quietly mints the row, this test is the only thing in the suite that notices.
+# The row has two clauses and they are STRUCTURAL, so the test asserts them structurally and
+# directly. An earlier version of this test only ran the extraction path and asserted the
+# count was unchanged; that is a BEHAVIOURAL fact ("the app didn't try to write") and it is
+# guaranteed by `extract_and_store` issuing a bare `select`. It passed identically whether or
+# not the role held insert, and whether or not a definer function survived — i.e. it did not
+# prove the claim the row makes. (Caught by `project-reviewer` on PR #36.)
+#
+# THE FAILURE THIS ROW IS DESIGNED AGAINST: a future ticket adds `grant insert on
+# public.exercises to authenticated`, or restores a definer helper "to grow the catalog from
+# unknowns" — a follow-up row 26's note explicitly anticipates. The app-behaviour assertion
+# below would stay green through both, and the structural guarantee that justifies this
+# entire redesign would be gone silently. Clauses 1 and 2 are what go red instead.
+#
+# Must run as `coach_app` (the RLS_DATABASE_URL pool — the role prod actually uses, via
+# `authed_conn`'s `set local role authenticated`). It cannot be faked: a fake pool has no
+# privileges to lack.
 @requires_rls_db
 async def test_row25_the_app_role_cannot_write_the_catalog_at_all() -> None:
     from app.db.pool import close_pool, create_pool
+    from app.db.session import authed_conn
     from app.services.extraction import extract_and_store
 
     admin = _require_admin_dsn()
@@ -697,6 +723,67 @@ async def test_row25_the_app_role_cannot_write_the_catalog_at_all() -> None:
         )
         before = await _admin_count_exercises(admin)
 
+        # ---- Clause 1: the role holds NO INSERT PRIVILEGE on `exercises`. ----
+        # Asserted two ways, because either alone is escapable:
+        #
+        # (a) `has_table_privilege` reads the GRANT itself. This is the assertion that goes
+        #     red the day someone writes `grant insert on public.exercises to authenticated`
+        #     — and it is load-bearing precisely because (b) would NOT. `exercises` has RLS
+        #     on with a select-only policy, so after such a grant an insert would still be
+        #     refused — by the RLS gate — and would still raise the SAME 42501 error class.
+        #     (b) cannot tell "no privilege" from "privilege, but no policy"; the row's claim
+        #     is the former, so the row needs (a).
+        # (b) The insert is actually attempted, as the role, against the real table. This is
+        #     what proves the grant reading corresponds to reality — a privilege audited but
+        #     never exercised is a claim about a catalog view, not about the database.
+        async with authed_conn(pool, a) as conn:
+            assert (
+                await conn.fetchval(
+                    "select has_table_privilege('authenticated', 'public.exercises', 'insert')"
+                )
+                is False
+            ), (
+                "`authenticated` holds INSERT on public.exercises — the app can write the "
+                "shared catalog. Row 25's whole point is that this privilege does not exist: "
+                "no write path, so no user text can ever reach an ownerless table that every "
+                "user reads. If this grant is wanted, the table changes first, not the test."
+            )
+
+        with pytest.raises(asyncpg.exceptions.InsufficientPrivilegeError):
+            async with authed_conn(pool, a) as conn:
+                await conn.execute(
+                    "insert into public.exercises (name) values ($1)",
+                    "row25 direct privilege probe",
+                )
+        # The probe must not have landed even partially (the raise rolls its tx back).
+        assert await _admin_count_exercises_matching(admin, "%row25%") == 0
+
+        # ---- Clause 2: no `security definer` function can lend it one. ----
+        # A definer function runs as its OWNER, so it bypasses both gates above: it would
+        # hand the app back the write path clause 1 just removed, and clause 1 would still
+        # be green. `public.resolve_exercise` was exactly such a function before this
+        # amendment; the redesign deleted the privilege boundary rather than guarding it.
+        # `public.handle_new_user` is a pre-existing, unrelated definer (it touches
+        # `profiles`) and correctly does not match this predicate.
+        async with authed_conn(pool, a) as conn:
+            definers: list[str] = [
+                r["proname"]
+                for r in await conn.fetch(
+                    "select proname from pg_proc where prosecdef and prosrc ilike '%exercises%'"
+                )
+            ]
+        assert definers == [], (
+            f"`security definer` function(s) {definers} reference `exercises` — one of them "
+            "can insert into the catalog on the app's behalf regardless of the app role's "
+            "grants, which re-opens the escalation surface this redesign exists to delete."
+        )
+
+        # ---- The end-to-end check: the real path over unseeded text writes nothing. ----
+        # Worth keeping, but NOT sufficient on its own, and it is not what proves the row:
+        # it only shows THIS implementation of `extract_and_store` doesn't attempt a write.
+        # It would pass unchanged against a role holding insert and against a surviving
+        # definer. Clauses 1 and 2 are what make those two futures fail; this asserts the
+        # shipped path agrees with them today.
         check_in_id = await _seed_check_in(pool, a, "zercher squat 185 3x5")
         await extract_and_store(
             pool,
@@ -706,18 +793,16 @@ async def test_row25_the_app_role_cannot_write_the_catalog_at_all() -> None:
             _FakeExtractor(_sets_facts(unseeded, sets=3, weight="185")),
         )
 
-        # The catalog is untouched: not by an insert, not by an upsert, not by a definer
-        # function acting on the app's behalf.
         assert await _admin_count_exercises(admin) == before
         assert await _admin_exercise_id(admin, unseeded) is None
         assert await _admin_count_exercises_matching(admin, "%zercher%") == 0
     finally:
         await _admin_delete_users(admin, a)
-        # Sweep up any row the CURRENT (still-minting) implementation left behind, so a
-        # re-run fails on the assertion above rather than on its own residue. Once the write
-        # path is gone this delete is a no-op — and if it ever stops being one, that IS the
-        # bug this row is about.
+        # Sweep up any row a regressed implementation left behind, so a re-run fails on the
+        # assertions above rather than on its own residue. With no write path these deletes
+        # are no-ops — and if one ever stops being one, that IS the bug this row is about.
         await _admin_delete_exercises_named(admin, unseeded)
+        await _admin_delete_exercises_named(admin, "row25 direct privilege probe")
         await close_pool(pool)
 
 
