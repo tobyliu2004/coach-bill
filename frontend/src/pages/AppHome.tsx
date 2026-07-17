@@ -146,9 +146,12 @@ function AppHome() {
     setBusy(true)
     setError(null)
     try {
-      await api.createCheckIn(body)
+      // Use what POST returned rather than refetching the whole list. The response is read
+      // back from the database through the same path GET uses, so it's the same row GET
+      // would hand us — one round trip instead of two, and the new check-in lands instantly.
+      const created = await api.createCheckIn(body)
       setText('')
-      await refresh()
+      setCheckIns((rows) => [created, ...rows]) // newest first, matching the list's order
     } catch (err) {
       onError(err, () => setError('That didn’t save — try again.'))
     } finally {

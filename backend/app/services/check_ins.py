@@ -41,9 +41,8 @@ async def create_check_in(
     row = await check_ins_db.insert_check_in(pool, user_id, body.text, local_today(tz))
     check_in_id: UUID = row["id"]
 
-    facts = CheckInFacts()
     try:
-        status, facts = await extract_and_store(pool, user_id, check_in_id, body.text, extractor)
+        status = await extract_and_store(pool, user_id, check_in_id, body.text, extractor)
     except Exception:
         # Deliberately broad. A vendor outage, a timeout, malformed output that failed
         # validation, a bug in our own mapping — from the user's side these are one thing
@@ -55,6 +54,15 @@ async def create_check_in(
         status = failed_status()
 
     await check_ins_db.set_extraction_status(pool, user_id, check_in_id, status)
+    # Read the facts back through the SAME path GET uses, rather than echoing what we just
+    # wrote. Consistency by construction: the read resolves each set's exercise through the
+    # catalog, so a check-in logged as "curls" comes back as `barbell curl` here exactly as
+    # it will on the next list. Echoing the model's raw name instead made POST and GET
+    # disagree about the same row — invisible today only because the screen refetched.
+    facts = _facts_for(
+        _group_by_check_in(await facts_db.list_facts_for_check_ins(pool, user_id, [check_in_id])),
+        check_in_id,
+    )
     # The INSERT returned the row as 'pending'; the decided status is the truth now.
     return CheckInOut(**{**dict(row), "extraction_status": status}, facts=facts)
 

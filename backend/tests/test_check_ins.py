@@ -142,9 +142,12 @@ def _sign_in(responses: list[Any]) -> FakePool:
 # name public.check_ins and carry the verified user_id + raw_text + local-today date.
 async def test_post_valid_text_creates_check_in(client: AsyncClient) -> None:
     text = "did 5x5 squats at 225"
-    # responses: [timezone read, inserted row]. tz "UTC" -> local today is today's UTC date.
     inserted = _check_in_row(raw_text=text, source="text")
-    pool = _sign_in(["UTC", inserted])
+    # responses: [timezone read (tz "UTC" -> local today is today's UTC date), inserted row,
+    # profile weight_unit, then the four fact reads
+    # POST does to return the stored facts (issue #19)]. All of them pop AFTER calls[1], so
+    # the INSERT assertions below are untouched.
+    pool = _sign_in(["UTC", inserted, "lb", [], [], [], []])
 
     resp = await client.post("/check-ins", json={"text": text})
 
@@ -209,7 +212,9 @@ async def test_post_text_over_4000_chars_is_422(client: AsyncClient) -> None:
 # AC row 4 (boundary): exactly 4000 chars is accepted -> 201.
 async def test_post_text_at_4000_chars_is_accepted(client: AsyncClient) -> None:
     text = "x" * 4000
-    _sign_in(["UTC", _check_in_row(raw_text=text)])
+    # + weight_unit and the four fact reads POST does since issue #19; this test asserts the
+    # 201 boundary only, so they're empty.
+    _sign_in(["UTC", _check_in_row(raw_text=text), "lb", [], [], [], []])
 
     resp = await client.post("/check-ins", json={"text": text})
 

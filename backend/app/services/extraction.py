@@ -15,13 +15,6 @@ import asyncpg
 from app.ai.extractor import Extractor
 from app.db import facts as facts_db
 from app.db.profiles import get_user_weight_unit
-from app.schemas.check_ins import (
-    BodyweightEntryOut,
-    CheckInFacts,
-    NutritionEntryOut,
-    SleepEntryOut,
-    WorkoutSetOut,
-)
 from app.schemas.extraction import ExtractedFacts
 
 # The international avoirdupois pound, exactly. Not an approximation: 135 lb is exactly
@@ -64,12 +57,16 @@ async def extract_and_store(
     check_in_id: UUID,
     raw_text: str,
     extractor: Extractor,
-) -> tuple[str, CheckInFacts]:
+) -> str:
     """Extract facts from `raw_text` and persist them onto `check_in_id`. Returns the
-    `extraction_status` to stamp and exactly what was stored.
+    `extraction_status` to stamp.
 
-    Returning the facts (rather than making the caller re-SELECT them) keeps POST at zero
-    extra reads: we just wrote these rows and know which ones were dropped.
+    Returns the status only, not the facts. It used to hand back a CheckInFacts built from
+    what it had just written — which was both wasted (the caller re-read them anyway) and
+    subtly wrong: those facts carried the MODEL's raw exercise name ("curl"), while a read
+    goes through the catalog and gets the canonical one ("barbell curl"). Same check-in, two
+    different answers depending on which call you asked. The caller reads its facts back
+    through the same path GET uses, so the two cannot disagree.
 
     Raises whatever the extractor raises (vendor error, validation error) — the caller
     turns that into 'failed' and keeps the text. Nothing is written when it raises, so a
@@ -109,34 +106,6 @@ async def extract_and_store(
         bodyweight=bodyweight,
     )
 
-    facts = CheckInFacts(
-        sets=[
-            WorkoutSetOut(
-                id=row_id, exercise_name=name, set_number=number, reps=reps, weight_kg=weight_kg
-            )
-            for row_id, name, number, reps, weight_kg in stored.sets
-        ],
-        nutrition=[
-            NutritionEntryOut(
-                id=row_id,
-                description=description,
-                calories=calories,
-                protein_g=protein_g,
-                carbs_g=carbs_g,
-                fat_g=fat_g,
-                meal=meal,
-            )
-            for row_id, description, calories, protein_g, carbs_g, fat_g, meal in stored.nutrition
-        ],
-        sleep=[
-            SleepEntryOut(id=row_id, hours=hours, quality=quality)
-            for row_id, hours, quality in stored.sleep
-        ],
-        bodyweight=[
-            BodyweightEntryOut(id=row_id, weight_kg=kg) for row_id, kg in stored.bodyweight
-        ],
-    )
-
     # Anything that went in but didn't come back was dropped — the ONE thing 'partial'
     # means. Everything else, including finding nothing at all, is 'done'.
     #
@@ -154,7 +123,7 @@ async def extract_and_store(
         or len(stored.sleep) != len(sleep)
         or len(stored.bodyweight) != len(bodyweight)
     )
-    return (_STATUS_PARTIAL if dropped_any else _STATUS_DONE), facts
+    return _STATUS_PARTIAL if dropped_any else _STATUS_DONE
 
 
 def failed_status() -> str:
