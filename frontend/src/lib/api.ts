@@ -26,6 +26,53 @@ export interface ProfileUpdate {
   consent?: boolean
 }
 
+/**
+ * The facts extraction pulled out of a check-in. Mirrors the *Out models in
+ * backend/app/schemas/check_ins.py — keep them in sync.
+ *
+ * Every number here is a STRING, not a `number`: the backend stores these as Postgres
+ * `numeric` and Pydantic serializes `Decimal` to a JSON string, because JSON's only number
+ * type is a float and 61.235 kg has no business being rounded by a parser. Treat them as
+ * opaque display values; the day we do arithmetic in the browser, parse deliberately.
+ */
+export interface WorkoutSet {
+  id: string
+  exercise_name: string
+  set_number: number
+  reps: number
+  /** null for bodyweight moves — never 0, which would be a real load of zero. */
+  weight_kg: string | null
+}
+
+export interface NutritionEntry {
+  id: string
+  description: string
+  calories: string
+  protein_g: string
+  carbs_g: string
+  fat_g: string
+  meal: 'breakfast' | 'lunch' | 'dinner' | 'snack' | null
+}
+
+export interface SleepEntry {
+  id: string
+  hours: string
+  /** 1-5, null unless the user actually rated it. */
+  quality: number | null
+}
+
+export interface BodyweightEntry {
+  id: string
+  weight_kg: string
+}
+
+export interface CheckInFacts {
+  sets: WorkoutSet[]
+  nutrition: NutritionEntry[]
+  sleep: SleepEntry[]
+  bodyweight: BodyweightEntry[]
+}
+
 /** Mirrors backend/app/schemas/check_ins.py CheckInOut — keep them in sync. */
 export interface CheckIn {
   id: string
@@ -33,6 +80,14 @@ export interface CheckIn {
   source: 'voice' | 'text'
   entry_date: string
   created_at: string
+  /**
+   * 'pending' — saved, extraction unfinished (also what a crash leaves behind)
+   * 'done'    — extraction ran and stored everything it found, INCLUDING nothing at all
+   * 'partial' — a fact was found but had to be dropped (a rejected exercise name)
+   * 'failed'  — extraction itself broke; the raw text is intact regardless
+   */
+  extraction_status: 'pending' | 'done' | 'partial' | 'failed'
+  facts: CheckInFacts
 }
 
 /** No session, or the backend rejected the token — the caller should treat as signed out. */

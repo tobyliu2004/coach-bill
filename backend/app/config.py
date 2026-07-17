@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     # so the backend can verify access tokens without holding any signing secret. Required.
     supabase_url: str
 
+    # Anthropic API key for the extraction model (claude-haiku-4-5). Required — a missing
+    # key fails at startup, not on some user's first check-in. Billing is prepaid credits
+    # with auto-recharge OFF, so the blast radius of a leak or a bug is the balance, not
+    # the card (issue #19).
+    anthropic_api_key: str
+
     # Allowed browser origins for CORS. Given in .env as a comma-separated string;
     # NoDecode stops pydantic-settings from trying to JSON-parse it first.
     cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:5173"]

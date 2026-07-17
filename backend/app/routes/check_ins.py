@@ -8,6 +8,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Response, status
 
+from app.ai.extractor import ExtractorDep
 from app.auth import UserIdDep
 from app.deps import PoolDep
 from app.schemas.check_ins import CheckInCreate, CheckInOut
@@ -19,9 +20,16 @@ _NOT_FOUND = HTTPException(status.HTTP_404_NOT_FOUND, "Check-in not found")
 
 
 @router.post("/check-ins", response_model=CheckInOut, status_code=status.HTTP_201_CREATED)
-async def post_check_in(user_id: UserIdDep, pool: PoolDep, body: CheckInCreate) -> CheckInOut:
-    """Log a new text check-in under the caller's local today."""
-    return await create_check_in(pool, user_id, body)
+async def post_check_in(
+    user_id: UserIdDep, pool: PoolDep, body: CheckInCreate, extractor: ExtractorDep
+) -> CheckInOut:
+    """Log a new text check-in under the caller's local today, and extract its facts.
+
+    Extraction runs inside this request, so the response already carries what was read.
+    It cannot fail the request: a broken extraction still returns 201 with the raw text
+    intact and `extraction_status` telling the truth about what happened.
+    """
+    return await create_check_in(pool, user_id, body, extractor)
 
 
 @router.get("/check-ins", response_model=list[CheckInOut])

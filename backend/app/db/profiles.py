@@ -32,6 +32,21 @@ async def get_user_timezone(pool: asyncpg.Pool, user_id: UUID) -> str | None:
         return tz
 
 
+async def get_user_weight_unit(pool: asyncpg.Pool, user_id: UUID) -> str | None:
+    """The caller's preferred weight unit ('lb' or 'kg'), or None (missing row).
+
+    The unit lives on the PROFILE, never in the check-in text — "bench 135" says nothing
+    about units. Reading it from anywhere else is invisible until someone's chart is off
+    by 2.2x. Callers fall back to the column's own default, 'lb'.
+    """
+    async with authed_conn(pool, user_id) as conn:
+        unit: str | None = await conn.fetchval(
+            "select weight_unit from public.profiles where id = $1",
+            user_id,
+        )
+        return unit
+
+
 async def update_profile(
     pool: asyncpg.Pool,
     user_id: UUID,

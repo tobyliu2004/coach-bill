@@ -10,6 +10,10 @@ dependencies = [
     "pydantic>=2.10",
     "pydantic-settings>=2.7",
     "pyjwt[crypto]>=2.10",
+    # The extraction model (issue #19). Needs >=0.69 for messages.parse / output_format —
+    # the structured-output helper that validates the model's JSON against our Pydantic
+    # shapes, so app/ai/extractor.py never hand-parses untrusted output.
+    "anthropic>=0.69",
     # Vendored IANA tz database: zoneinfo must not depend on the OS image shipping one
     # (slim containers don't) — timezone validation would 422 for every valid zone.
     "tzdata>=2025.1",

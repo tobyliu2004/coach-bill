@@ -43,6 +43,10 @@ def _check_in_row(**overrides: Any) -> dict[str, Any]:
         "source": "text",
         "entry_date": date(2026, 7, 15),
         "created_at": CREATED_AT,
+        # Added by issue #19: the column now exists on every check_ins row, so a fake row
+        # without it isn't a row this app can return. Fixture only — no assertion in this
+        # file reads it (#19's own oracle covers what the statuses MEAN).
+        "extraction_status": "pending",
     }
     row.update(overrides)
     return row
@@ -120,6 +124,20 @@ class _FakeAcquire:
         return False
 
 
+class _NullExtractor:
+    """A do-nothing Extractor for the real-DB tests below.
+
+    Issue #19 made the extractor an explicit argument to create_check_in. These tests are
+    about cross-tenant isolation, not extraction, so they pass one that returns no facts:
+    no network, no fact rows, and every isolation proof below is exactly as strong as it was.
+    """
+
+    async def extract(self, text: str) -> Any:
+        from app.schemas.extraction import ExtractedFacts
+
+        return ExtractedFacts()
+
+
 def _sign_in(responses: list[Any]) -> FakePool:
     """Wire the app as if USER_ID holds a valid token and the DB serves `responses` in order."""
     from app.deps import get_pool
@@ -138,9 +156,12 @@ def _sign_in(responses: list[Any]) -> FakePool:
 # name public.check_ins and carry the verified user_id + raw_text + local-today date.
 async def test_post_valid_text_creates_check_in(client: AsyncClient) -> None:
     text = "did 5x5 squats at 225"
-    # responses: [timezone read, inserted row]. tz "UTC" -> local today is today's UTC date.
     inserted = _check_in_row(raw_text=text, source="text")
-    pool = _sign_in(["UTC", inserted])
+    # responses: [timezone read (tz "UTC" -> local today is today's UTC date), inserted row,
+    # profile weight_unit, then the four fact reads
+    # POST does to return the stored facts (issue #19)]. All of them pop AFTER calls[1], so
+    # the INSERT assertions below are untouched.
+    pool = _sign_in(["UTC", inserted, "lb", [], [], [], []])
 
     resp = await client.post("/check-ins", json={"text": text})
 
@@ -205,7 +226,9 @@ async def test_post_text_over_4000_chars_is_422(client: AsyncClient) -> None:
 # AC row 4 (boundary): exactly 4000 chars is accepted -> 201.
 async def test_post_text_at_4000_chars_is_accepted(client: AsyncClient) -> None:
     text = "x" * 4000
-    _sign_in(["UTC", _check_in_row(raw_text=text)])
+    # + weight_unit and the four fact reads POST does since issue #19; this test asserts the
+    # 201 boundary only, so they're empty.
+    _sign_in(["UTC", _check_in_row(raw_text=text), "lb", [], [], [], []])
 
     resp = await client.post("/check-ins", json={"text": text})
 
@@ -232,8 +255,12 @@ async def test_get_returns_todays_check_ins_in_order(client: AsyncClient) -> Non
         raw_text="older",
         created_at=CREATED_AT - timedelta(hours=2),
     )
-    # responses: [timezone read, list rows already ordered newest-first by the db]
-    pool = _sign_in(["UTC", [newest, older]])
+    # responses: [timezone read, list rows already ordered newest-first by the db, then the
+    # four bundled fact reads added by issue #19 (workout_sets, nutrition_entries,
+    # sleep_entries, bodyweight_entries) — empty here; this test is about ORDER, and the
+    # facts themselves are #19's oracle to assert. They pop AFTER calls[1], so every
+    # assertion below is untouched.
+    pool = _sign_in(["UTC", [newest, older], [], [], [], []])
 
     resp = await client.get("/check-ins")
 
@@ -367,7 +394,9 @@ async def test_cross_tenant_delete_leaves_a_row_unchanged() -> None:
     try:
         await _seed_users(pool, a, b)
 
-        created = await create_check_in(pool, a, CheckInCreate(text="A's private note"))
+        created = await create_check_in(
+            pool, a, CheckInCreate(text="A's private note"), _NullExtractor()
+        )
         a_id = created.id
 
         # B tries to delete A's row: no row matches (id, B) -> False, and A keeps the row.
@@ -396,8 +425,8 @@ async def test_list_is_isolated_per_user() -> None:
     try:
         await _seed_users(pool, a, b)
 
-        a_row = await create_check_in(pool, a, CheckInCreate(text="A note"))
-        b_row = await create_check_in(pool, b, CheckInCreate(text="B note"))
+        a_row = await create_check_in(pool, a, CheckInCreate(text="A note"), _NullExtractor())
+        b_row = await create_check_in(pool, b, CheckInCreate(text="B note"), _NullExtractor())
 
         a_ids = [r.id for r in await list_check_ins(pool, a)]
         b_ids = [r.id for r in await list_check_ins(pool, b)]

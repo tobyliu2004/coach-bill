@@ -479,7 +479,15 @@ async def test_owner_path_end_to_end() -> None:
     from app.db.pool import close_pool, create_pool
     from app.db.profiles import get_profile
     from app.schemas.check_ins import CheckInCreate
+    from app.schemas.extraction import ExtractedFacts
     from app.services.check_ins import create_check_in, list_check_ins
+
+    # Issue #19 made the extractor an explicit argument to create_check_in. This suite is
+    # about RLS, not extraction, so it passes a do-nothing one: no network, no facts, and
+    # the owner path below is exactly as much of a proof as it was before.
+    class _NullExtractor:
+        async def extract(self, text: str) -> ExtractedFacts:
+            return ExtractedFacts()
 
     admin = _require_admin_dsn()
     a = uuid.uuid4()
@@ -487,7 +495,7 @@ async def test_owner_path_end_to_end() -> None:
     try:
         await _admin_seed_users(admin, a)
 
-        created = await create_check_in(pool, a, CheckInCreate(text="owner note"))
+        created = await create_check_in(pool, a, CheckInCreate(text="owner note"), _NullExtractor())
         listed_ids = [r.id for r in await list_check_ins(pool, a)]
         assert created.id in listed_ids
         assert created.raw_text == "owner note"
