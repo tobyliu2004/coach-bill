@@ -124,6 +124,20 @@ class _FakeAcquire:
         return False
 
 
+class _NullExtractor:
+    """A do-nothing Extractor for the real-DB tests below.
+
+    Issue #19 made the extractor an explicit argument to create_check_in. These tests are
+    about cross-tenant isolation, not extraction, so they pass one that returns no facts:
+    no network, no fact rows, and every isolation proof below is exactly as strong as it was.
+    """
+
+    async def extract(self, text: str) -> Any:
+        from app.schemas.extraction import ExtractedFacts
+
+        return ExtractedFacts()
+
+
 def _sign_in(responses: list[Any]) -> FakePool:
     """Wire the app as if USER_ID holds a valid token and the DB serves `responses` in order."""
     from app.deps import get_pool
@@ -380,7 +394,9 @@ async def test_cross_tenant_delete_leaves_a_row_unchanged() -> None:
     try:
         await _seed_users(pool, a, b)
 
-        created = await create_check_in(pool, a, CheckInCreate(text="A's private note"))
+        created = await create_check_in(
+            pool, a, CheckInCreate(text="A's private note"), _NullExtractor()
+        )
         a_id = created.id
 
         # B tries to delete A's row: no row matches (id, B) -> False, and A keeps the row.
@@ -409,8 +425,8 @@ async def test_list_is_isolated_per_user() -> None:
     try:
         await _seed_users(pool, a, b)
 
-        a_row = await create_check_in(pool, a, CheckInCreate(text="A note"))
-        b_row = await create_check_in(pool, b, CheckInCreate(text="B note"))
+        a_row = await create_check_in(pool, a, CheckInCreate(text="A note"), _NullExtractor())
+        b_row = await create_check_in(pool, b, CheckInCreate(text="B note"), _NullExtractor())
 
         a_ids = [r.id for r in await list_check_ins(pool, a)]
         b_ids = [r.id for r in await list_check_ins(pool, b)]
