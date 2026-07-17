@@ -45,6 +45,17 @@ catalog?". Consequences encoded below:
     charset guard let through, and the reason the table moved — is now covered.
   - Rows 24-26 are new.
 
+AMENDED again 2026-07-16 (Toby, AMENDMENT #2 — aliases): `exercises` gains a self-referencing
+`canonical_id uuid null references public.exercises(id)`. `canonical_id is null` means the row
+IS a movement; set, it means the row is an ALIAS pointing at one. `resolve_exercise` returns
+`coalesce(canonical_id, id)`, so `workout_sets.exercise_id` never points at an alias. Encoded:
+  - Row 24's OPEN deviation is RESOLVED in the table's favour — `"  PULL  UP "` now resolves,
+    via the alias `pull up` -> `pull-up`. Toby ruled the code moves; the flag is gone and the
+    row's own example is restored.
+  - Rows 28-29 are new.
+The exact alias LIST is deliberately not pinned — only the behaviour the rows state, using the
+examples the rows name. The seed is free to carry more.
+
 These reach the catalog through `app.db.facts.resolve_exercise(conn, raw_name)`, the Python
 seam every caller already uses — NOT through `select public.resolve_exercise($1)` the way
 the pre-amendment tests did. Toby has not yet decided whether the lookup stays a (no longer
@@ -184,6 +195,40 @@ async def _admin_exercise_id(admin_dsn: str, name: str) -> uuid.UUID | None:
             "select id from public.exercises where name = $1", name
         )
         return ex_id
+    finally:
+        await conn.close()
+
+
+async def _admin_exercise_row(admin_dsn: str, name: str) -> asyncpg.Record | None:
+    """The raw catalog row (id + canonical_id) for a name, read from outside RLS.
+
+    Row 28 turns on the DIFFERENCE between a row's own id and the id it resolves to, so it
+    needs the row itself, not just `_admin_exercise_id`'s id. At oracle time this raises
+    `UndefinedColumnError: column "canonical_id" does not exist` — the migration carrying
+    amendment #2's self-reference is the precondition for the whole alias design, so that
+    is the RIGHT red.
+    """
+    conn = await asyncpg.connect(admin_dsn)
+    try:
+        return await conn.fetchrow(
+            "select id, canonical_id from public.exercises where name = $1", name
+        )
+    finally:
+        await conn.close()
+
+
+async def _admin_count_alias_rows(admin_dsn: str) -> int:
+    """How many catalog rows are ALIASES (`canonical_id` set) rather than movements.
+
+    Row 29's "aliases are seeded, never minted" is not covered by a total row count alone:
+    see the test for why the two counts fail differently.
+    """
+    conn = await asyncpg.connect(admin_dsn)
+    try:
+        count: int = await conn.fetchval(
+            "select count(*) from public.exercises where canonical_id is not null"
+        )
+        return count
     finally:
         await conn.close()
 
@@ -645,22 +690,21 @@ async def test_row24_a_seeded_movement_resolves_stores_the_set_and_is_done() -> 
 
         # Every casing/spacing the model might emit lands on the one seeded row.
         #
-        # ⚠️ OPEN DEVIATION FROM ROW 24'S TEXT — awaiting Toby's ruling, do not quietly
-        # resolve by editing this test. The amended row's example is `"  PULL  UP "` (space,
-        # no hyphen) resolving against a catalog seeded as `pull-up`. That requires
-        # normalization to fold HYPHENS; `normalize_exercise_name` folds only case and
-        # whitespace, so `"pull up"` != `"pull-up"` -> None and the row's own example fails.
-        # The third assertion below therefore tests `"  PULL-UP  "` (hyphen added) — the
-        # row's *intent* (casing/spacing must not fragment the catalog) but not its literal
-        # example. Flagged rather than asserted-as-written because the divergence is a
-        # design question the table owns, not the oracle: should normalization fold hyphens?
-        # If yes, the code changes and this line becomes `"  PULL  UP "`. If no, row 24's
-        # example changes. Either way it is Toby's call. (Raised by `project-reviewer` on
-        # PR #36; the same class of deviation flagged for rows 12 and 14.)
+        # RESOLVED 2026-07-16 by AMENDMENT #2 — in the TABLE's favour. The oracle previously
+        # flagged this as an OPEN deviation: row 24's own example is `"  PULL  UP "` (space,
+        # no hyphen) against a catalog seeded as `pull-up`, which normalization (case +
+        # whitespace only) cannot reach, so the test asserted `"  PULL-UP  "` and recorded
+        # the divergence rather than hiding it. Toby ruled the CODE moves: `pull up` is now
+        # a seeded ALIAS of `pull-up`, so the row's literal example is restored below.
+        #
+        # Note the mechanism is deliberately NOT pinned: the third assertion does not care
+        # whether `"  PULL  UP "` arrives via an alias row or via normalization learning to
+        # fold hyphens. It asserts the row's claim — that spelling lands on the canonical
+        # seeded id — which is true under either.
         async with authed_conn(pool, a) as conn:
             assert await resolve_exercise(conn, "Pull-Up") == seeded_id
             assert await resolve_exercise(conn, "pull-up") == seeded_id
-            assert await resolve_exercise(conn, "  PULL-UP  ") == seeded_id
+            assert await resolve_exercise(conn, "  PULL  UP ") == seeded_id
 
         created = await create_check_in(
             pool,
@@ -851,6 +895,238 @@ async def test_row26_an_unseeded_real_lift_is_dropped_and_marked_partial() -> No
     finally:
         await _admin_delete_users(admin, a)
         await _admin_delete_exercises_named(admin, "zercher squat")  # see row 25's teardown
+        await close_pool(pool)
+
+
+# =====================================================================================
+# Rows 28-29 — the alias amendment (Toby, 2026-07-16, amendment #2 on PR #36)
+# =====================================================================================
+
+
+# AC row 28 (NEW): "curls", "bicep curl" and "barbell curl" all resolve to the SAME
+# `exercises` row — the CANONICAL `barbell curl`. `workout_sets.exercise_id` never points at
+# an alias row.
+#
+# Two separable claims, and the second is the one with teeth:
+#   (a) the three ids are EQUAL — common phrasing logs instead of dropping (the cost row 26
+#       accepted for `zercher squat`, which amendment #2 refuses to accept for `curls`).
+#   (b) that shared id is the CANONICAL row — its `canonical_id` is null.
+# Without (b), an implementation whose `resolve_exercise` returned the alias row's OWN id
+# would satisfy (a) perfectly — all three names agree — while pointing every set at an alias.
+# The catalog then has two rows meaning "barbell curl" and sets scattered across both: that
+# is exactly the fragmentation row 7 exists to prevent, walking back in through the door
+# amendment #2 opened. So (b) asserts the id resolves to a row that IS a movement, and the
+# alias-row assertion below asserts it is NOT the alias's own id — an alias is a signpost,
+# never a destination.
+#
+# Driven through `create_check_in` for at least one name (as rows 24/26 do), because the
+# claim "workout_sets.exercise_id never points at an alias" is about what gets STORED, and
+# `resolve_exercise` alone cannot prove what the writer did with its return value.
+@requires_rls_db
+async def test_row28_an_alias_resolves_to_its_canonical_movement() -> None:
+    from app.db.facts import resolve_exercise
+    from app.db.pool import close_pool, create_pool
+    from app.db.session import authed_conn
+    from app.schemas.check_ins import CheckInCreate
+    from app.services.check_ins import create_check_in
+
+    admin = _require_admin_dsn()
+    a = uuid.uuid4()
+    pool = await create_pool(os.environ["RLS_DATABASE_URL"])
+    try:
+        await _admin_seed_users(admin, a)
+        await _admin_set_weight_unit(admin, a, "kg")
+        await _require_seeded_catalog(admin)
+
+        # The canonical movement the aliases must point at. Named by row 28 itself, so
+        # pinning it is the row's claim, not the oracle's invention.
+        canonical = await _admin_exercise_row(admin, "barbell curl")
+        assert canonical is not None, (
+            "'barbell curl' must be seeded as a canonical movement — row 28 names it as the "
+            "target the alias `curls` resolves to"
+        )
+        assert canonical["canonical_id"] is None, (
+            "'barbell curl' is the CANONICAL row in row 28's example; it must not itself be "
+            "an alias pointing somewhere else"
+        )
+        canonical_id = canonical["id"]
+        before = await _admin_count_exercises(admin)
+
+        # ---- (a) all three spellings resolve to the SAME id ----
+        async with authed_conn(pool, a) as conn:
+            via_alias = await resolve_exercise(conn, "curls")
+            via_other_alias = await resolve_exercise(conn, "bicep curl")
+            via_canonical = await resolve_exercise(conn, "barbell curl")
+
+        assert via_alias == via_canonical, "'curls' must resolve to the canonical barbell curl"
+        assert via_other_alias == via_canonical, "'bicep curl' must resolve to the same row"
+
+        # ---- (b) ...and that id is the CANONICAL row, not an alias's own id ----
+        assert via_canonical == canonical_id
+        resolved = await _admin_exercise_row(admin, "barbell curl")
+        assert resolved is not None
+        assert resolved["canonical_id"] is None, (
+            "resolve_exercise returned a row that is itself an ALIAS — sets would point at a "
+            "signpost, fragmenting the catalog exactly as row 7 forbids"
+        )
+
+        # The alias rows exist, are DISTINCT rows, and are not what anything resolves to.
+        # This is what makes (b) non-vacuous: it proves `curls` really is a separate alias
+        # row that got followed, rather than a second name on the canonical row.
+        alias = await _admin_exercise_row(admin, "curls")
+        assert alias is not None, "'curls' must be seeded as an alias row"
+        assert alias["canonical_id"] == canonical_id  # the signpost points at the movement
+        assert alias["id"] != canonical_id  # it is its own row...
+        assert via_alias != alias["id"]  # ...and resolving `curls` never returns it
+
+        # ---- the stored end: workout_sets.exercise_id points at the canonical movement ----
+        created = await create_check_in(
+            pool,
+            a,
+            CheckInCreate(text="4x10 curls"),
+            _FakeExtractor(_sets_facts("curls", sets=4, weight="40")),
+        )
+        check_in_id = created.id
+
+        assert await _admin_set_exercise_ids(admin, check_in_id) == [canonical_id] * 4
+        # A logged set is a SUCCESS — the whole point of amendment #2 is that "curls" no
+        # longer drops to 'partial' the way row 26's genuinely-unknown `zercher squat` does.
+        assert created.extraction_status == "done"
+        assert await _admin_check_in_status(admin, check_in_id) == "done"
+
+        # Following an alias is still a READ. Nothing was minted.
+        assert await _admin_count_exercises(admin) == before
+    finally:
+        await _admin_delete_users(admin, a)
+        await close_pool(pool)
+
+
+# AC row 29 (NEW): extraction over text naming an UNKNOWN movement, run as `coach_app` ->
+# the `exercises` row count is UNCHANGED. Aliases are seeded, never minted; the role still
+# holds `select` only, and row 25's structural assertions still hold.
+#
+# WHERE THIS OVERLAPS ROW 25, STATED PLAINLY: "extraction over an unknown movement as
+# `coach_app` leaves the total row count unchanged" is verbatim row 25, and re-asserting it
+# alone would be a pure duplicate — a test whose only function is to fail twice. So this
+# asserts the two things amendment #2 ADDS, which row 25 is structurally blind to:
+#
+#   1. THE ALIAS COUNT, not just the total. Amendment #2 introduces a second KIND of row.
+#      "No new rows" and "no new aliases" are the same assertion today and stop being the
+#      same the moment anything can mint — and a total count cannot distinguish a catalog
+#      that grew a movement from one that grew an alias.
+#
+#   2. UPDATE and DELETE privilege, not just INSERT. This is the real hole. `canonical_id`
+#      is a new WRITE VECTOR THAT DOES NOT CHANGE THE ROW COUNT: repointing an existing
+#      row's `canonical_id` re-aims a name at a different movement — mislogging every future
+#      set under it — while every count assertion in row 25 and above stays green. Row 25
+#      asserts `has_table_privilege(... 'insert')` is false, which says nothing about update.
+#      Row 29's "the role still holds `select` only" is the clause that closes this, so the
+#      test asserts it as written: select yes, insert/update/delete no.
+#
+# Note the live probes here are sharper than row 25's insert probe, and for a reason worth
+# recording. Row 25 had to assert `has_table_privilege` separately because an insert refused
+# by RLS and an insert refused by a missing GRANT raise the SAME 42501 class, so the probe
+# alone couldn't tell "no privilege" from "privilege, no policy". UPDATE does not collide
+# that way: with the grant present and no permissive policy, RLS makes an update match ZERO
+# ROWS SILENTLY — no error at all. So an InsufficientPrivilegeError from the update probe
+# can only mean the grant is absent, which is precisely row 29's claim.
+@requires_rls_db
+async def test_row29_aliases_do_not_reopen_the_write_path() -> None:
+    from app.db.pool import close_pool, create_pool
+    from app.db.session import authed_conn
+    from app.services.extraction import extract_and_store
+
+    admin = _require_admin_dsn()
+    a = uuid.uuid4()
+    unknown = "zercher squat"  # neither seeded nor aliased — row 26's accepted cost
+    pool = await create_pool(os.environ["RLS_DATABASE_URL"])
+    try:
+        await _admin_seed_users(admin, a)
+        await _admin_set_weight_unit(admin, a, "kg")
+        await _require_seeded_catalog(admin)
+
+        assert await _admin_exercise_id(admin, unknown) is None, (
+            "'zercher squat' must be neither seeded nor aliased — row 29 needs a genuinely "
+            "unknown movement, and row 26's accepted cost depends on this one staying so"
+        )
+        before_total = await _admin_count_exercises(admin)
+        before_aliases = await _admin_count_alias_rows(admin)
+        assert before_aliases > 0, (
+            "the catalog carries ZERO alias rows — amendment #2's seed migration is the "
+            "precondition for rows 24/28/29. Until it lands, 'no aliases were minted' is "
+            "vacuously true and this row proves nothing."
+        )
+
+        # ---- The role holds `select` ONLY ----
+        async with authed_conn(pool, a) as conn:
+            # select: TRUE. Asserted explicitly, because "holds no write privilege" is also
+            # satisfied by a role that holds NOTHING — against which every drop-and-count
+            # assertion in this file passes while the product is entirely broken.
+            assert (
+                await conn.fetchval(
+                    "select has_table_privilege('authenticated', 'public.exercises', 'select')"
+                )
+                is True
+            ), "`authenticated` cannot READ the catalog — every name would drop"
+
+            for privilege in ("insert", "update", "delete"):
+                assert (
+                    await conn.fetchval(
+                        "select has_table_privilege('authenticated', 'public.exercises', $1)",
+                        privilege,
+                    )
+                    is False
+                ), (
+                    f"`authenticated` holds {privilege.upper()} on public.exercises. Amendment "
+                    "#2 added a lookup path; it must not have added a write path. UPDATE is "
+                    "the one to watch: repointing `canonical_id` mislogs every future set "
+                    "under that name WITHOUT changing any row count, so no count assertion "
+                    "in this file would notice."
+                )
+
+        # ---- ...and that reading corresponds to reality, exercised as the role ----
+        # A privilege audited but never exercised is a claim about a catalog view.
+        alias = await _admin_exercise_row(admin, "curls")
+        assert alias is not None
+        with pytest.raises(asyncpg.exceptions.InsufficientPrivilegeError):
+            async with authed_conn(pool, a) as conn:
+                await conn.execute(
+                    "insert into public.exercises (name, canonical_id) values ($1, $2)",
+                    "row29 alias minting probe",
+                    alias["canonical_id"],
+                )
+        with pytest.raises(asyncpg.exceptions.InsufficientPrivilegeError):
+            async with authed_conn(pool, a) as conn:
+                await conn.execute(
+                    "update public.exercises set canonical_id = null where id = $1", alias["id"]
+                )
+
+        # The probes changed nothing: no row minted, and `curls` still points where it did.
+        assert await _admin_count_exercises_matching(admin, "%row29%") == 0
+        still = await _admin_exercise_row(admin, "curls")
+        assert still is not None
+        assert still["canonical_id"] == alias["canonical_id"]  # not re-aimed
+
+        # ---- The end-to-end check: the real path over unknown text mints nothing ----
+        check_in_id = await _seed_check_in(pool, a, "zercher squat 185 3x5")
+        await extract_and_store(
+            pool,
+            a,
+            check_in_id,
+            "zercher squat 185 3x5",
+            _FakeExtractor(_sets_facts(unknown, sets=3, weight="185")),
+        )
+
+        assert await _admin_count_exercises(admin) == before_total
+        assert await _admin_count_alias_rows(admin) == before_aliases  # no alias minted either
+        assert await _admin_exercise_id(admin, unknown) is None
+        assert await _admin_count_exercises_matching(admin, "%zercher%") == 0
+    finally:
+        await _admin_delete_users(admin, a)
+        # No-ops unless something regressed — and if one ever stops being a no-op, that IS
+        # the bug this row is about. See row 25's teardown.
+        await _admin_delete_exercises_named(admin, unknown)
+        await _admin_delete_exercises_named(admin, "row29 alias minting probe")
         await close_pool(pool)
 
 

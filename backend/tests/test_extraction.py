@@ -88,6 +88,26 @@ def _normalize_exercise_name(raw_name: str) -> str:
     return re.sub(r"\s+", " ", raw_name.strip().lower())
 
 
+def _is_catalog_lookup(normalized_query: str) -> bool:
+    """Is this statement the catalog LOOKUP (as opposed to the list read's join)?
+
+    AMENDED 2026-07-16 (amendment #2, aliases). This used to be
+    `q.startswith("select id from public.exercises")` — i.e. it pinned the SELECT LIST.
+    Amendment #2 makes `resolve_exercise` return `coalesce(canonical_id, id)`, so the
+    shipped statement stops starting with "select id" and the fake would answer None to
+    every lookup: rows 1/2/3/7/12 would drop every set and go red for a reason that has
+    nothing to do with what they assert. A fake that fails when a mechanism the table
+    explicitly left open actually moves is a photograph, not a mirror.
+
+    So match the lookup by SHAPE: it reads `public.exercises` keyed BY NAME. That is the
+    one thing every plausible implementation of the lookup does and the one thing nothing
+    else does — the bundled list read (row 15) joins the catalog on `id`, never on `name`,
+    so it still cannot be mistaken for a lookup. The select list is now free to be
+    `id`, `coalesce(canonical_id, id)`, or anything else the amendment implies.
+    """
+    return "from public.exercises" in normalized_query and "where name" in normalized_query
+
+
 def _fake_resolve_exercise(raw_name: str) -> uuid.UUID | None:
     # Not in the seeded catalog -> None. No insert path, so nothing is ever created here.
     #
@@ -199,10 +219,11 @@ class _FakeConn:
         # the `security definer` write path — which no longer exists, so nothing matched,
         # every name resolved to None, and every set was silently dropped. The app now
         # issues a plain read against the seeded catalog, so that is what the fake answers.
-        # Matched on `select id from public.exercises` specifically, NOT on the substring
-        # "public.exercises", because the bundled list read joins that table too (row 15)
-        # and must not be answered as if it were a lookup.
-        if q.startswith("select id from public.exercises"):
+        # Matched by SHAPE (`from public.exercises` keyed `where name`), NOT on the bare
+        # substring "public.exercises": the bundled list read joins that table too (row 15)
+        # but on `id`, so it must not be answered as if it were a lookup. See
+        # `_is_catalog_lookup` for why the select list is deliberately not pinned.
+        if _is_catalog_lookup(q):
             raw = next((a for a in args if isinstance(a, str)), "")
             return _fake_resolve_exercise(raw)
 
@@ -351,6 +372,19 @@ def _inserts_into(pool: FakePool, table: str) -> list[tuple[Any, ...]]:
 
 def _touches(pool: FakePool, needle: str) -> list[tuple[str, tuple[Any, ...]]]:
     return [(q, a) for q, a in _sql(pool) if needle in " ".join(q.split()).lower()]
+
+
+def _lookup_args(pool: FakePool) -> list[tuple[Any, ...]]:
+    """The argument tuples of every catalog LOOKUP, in order.
+
+    AMENDED 2026-07-16 (amendment #2): rows 7 and 13 used to select these with
+    `_touches(pool, "select id from public.exercises")`, which pins the select list the
+    amendment retires (`coalesce(canonical_id, id)`). The CLAIM those rows make is
+    unchanged and is not about the select list: "the folded name was put to the catalog,
+    exactly once". So the claim is kept and the mechanism is unpinned — same predicate the
+    fake router uses, so the two can't drift apart.
+    """
+    return [a for q, a in _sql(pool) if _is_catalog_lookup(" ".join(q.split()).lower())]
 
 
 # =====================================================================================
@@ -528,12 +562,8 @@ async def test_row7_both_casings_resolve_to_the_same_seeded_id(client: AsyncClie
     # "a lookup happened") is what proves the fold — an implementation that looked the raw
     # string up verbatim would issue ("Bench Press",) here and fragment against a real
     # catalog seeded in lowercase.
-    assert [a for _q, a in _touches(pool_a, "select id from public.exercises")] == [
-        ("bench press",)
-    ]
-    assert [a for _q, a in _touches(pool_b, "select id from public.exercises")] == [
-        ("bench press",)
-    ]
+    assert _lookup_args(pool_a) == [("bench press",)]
+    assert _lookup_args(pool_b) == [("bench press",)]
 
     # ...and both sets point at the SAME exercise id.
     ex = exercise_id("bench press")
@@ -827,6 +857,4 @@ async def test_row13_unresolvable_exercise_name_drops_that_set_and_marks_partial
     # a hand-rolled pre-filter that never asked. The lookup is issued with the name folded,
     # exactly as row 7's resolvable name is: the catalog answers every name the same way,
     # and "not in the catalog" is the only reason this one dropped.
-    assert [a for _q, a in _touches(pool, "select id from public.exercises")] == [
-        (_normalize_exercise_name(leaky),)
-    ]
+    assert _lookup_args(pool) == [(_normalize_exercise_name(leaky),)]

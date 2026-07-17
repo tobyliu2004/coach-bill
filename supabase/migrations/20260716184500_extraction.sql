@@ -151,3 +151,115 @@ insert into public.exercises (name) values
   ('cycling'), ('stationary bike'), ('rowing'), ('elliptical'),
   ('stair climber'), ('swimming'), ('hiking')
 on conflict (name) do nothing;
+
+-- ---- aliases: how people actually talk -------------------------------------------------
+-- Both reviewers converged on this (PR #36): exact-match against the list above fires AC
+-- row 26's "accepted cost" on ordinary phrasing, not just exotic lifts. `bicep curl` and a
+-- bare `curl` were absent entirely, so "did 4x10 curls" had NO valid target — the model had
+-- to invent equipment the user never said, or the set dropped. And the list is singular
+-- except `pushups`, while nothing folds plurals, so `burpees`/`dips`/`lunges` all missed.
+-- Toby accepted "zercher squat drops". He did not accept "curls drops" — a beginner's first
+-- check-in half-vanishing is a different order of cost.
+--
+-- An ALIAS is just a row whose `canonical_id` points at the movement it means.
+-- `resolve_exercise` returns `coalesce(canonical_id, id)`, so an alias resolves to its
+-- canonical row and `workout_sets.exercise_id` never points at an alias.
+--
+-- Why a column and not an `exercise_aliases` table: schema.md says `exercises` is the ONE
+-- ownerless table and "if you think you need a second ownerless table, argue for it here
+-- first." This needs no argument — a self-reference keeps it at one table, one policy, one
+-- grant, and no new exception to a rule that is load-bearing precisely because it has no
+-- exceptions.
+--
+-- This makes canonicalization TESTABLE IN CI. Before, the only thing mapping "curls" to a
+-- real movement was a sentence in the system prompt, checked solely by rows 21-23 — which
+-- are skipped in CI. The whole cost model rested on an instruction no merge gate enforced.
+alter table public.exercises
+  add column canonical_id uuid references public.exercises (id),
+  -- A row cannot alias itself. Alias->alias chains are not blocked here (no clean way in a
+  -- CHECK); `resolve_exercise` deliberately follows exactly ONE hop, and AC row 28 asserts
+  -- the resolved row is canonical, so a chained seed fails the suite rather than silently
+  -- pointing a set at an alias.
+  add constraint exercises_alias_not_self check (canonical_id is null or canonical_id <> id);
+
+comment on column public.exercises.canonical_id is
+  'Null = this row IS a movement. Set = this row is an alias for that movement. '
+  'resolve_exercise returns coalesce(canonical_id, id), so sets never point at an alias.';
+
+insert into public.exercises (name, canonical_id)
+select alias, canonical.id
+  from (values
+    -- bare forms people actually say, mapped to the most common equipment
+    ('curl', 'barbell curl'), ('curls', 'barbell curl'),
+    ('bicep curl', 'barbell curl'), ('biceps curl', 'barbell curl'),
+    ('bicep curls', 'barbell curl'), ('barbell curls', 'barbell curl'),
+    ('dumbbell curls', 'dumbbell curl'), ('hammer curls', 'hammer curl'),
+    ('row', 'barbell row'), ('rows', 'barbell row'),
+    ('bent over row', 'barbell row'), ('bent-over row', 'barbell row'),
+    ('barbell rows', 'barbell row'), ('dumbbell rows', 'dumbbell row'),
+    ('shoulder press', 'overhead press'), ('military press', 'overhead press'),
+    ('ohp', 'overhead press'), ('overhead presses', 'overhead press'),
+    ('chest press', 'bench press'), ('flat bench', 'bench press'),
+    ('bench', 'bench press'), ('benching', 'bench press'),
+    ('incline bench', 'incline bench press'), ('incline press', 'incline bench press'),
+    ('decline bench', 'decline bench press'),
+    ('rdl', 'romanian deadlift'), ('rdls', 'romanian deadlift'),
+    ('romanian deadlifts', 'romanian deadlift'),
+    ('deadlifts', 'deadlift'), ('squats', 'squat'), ('front squats', 'front squat'),
+    ('back squats', 'back squat'), ('goblet squats', 'goblet squat'),
+    ('tricep extension', 'skullcrusher'), ('tricep extensions', 'skullcrusher'),
+    ('skullcrushers', 'skullcrusher'), ('pushdowns', 'tricep pushdown'),
+    ('tricep pushdowns', 'tricep pushdown'),
+    ('fly', 'dumbbell fly'), ('flies', 'dumbbell fly'), ('flyes', 'dumbbell fly'),
+    ('dumbbell flyes', 'dumbbell fly'), ('cable flyes', 'cable fly'),
+    ('shrug', 'barbell shrug'), ('shrugs', 'barbell shrug'),
+    ('pulldown', 'lat pulldown'), ('pulldowns', 'lat pulldown'),
+    ('lat pulldowns', 'lat pulldown'), ('lat pull down', 'lat pulldown'),
+    ('face pulls', 'face pull'), ('lateral raises', 'lateral raise'),
+    ('side raise', 'lateral raise'), ('side raises', 'lateral raise'),
+    ('front raises', 'front raise'), ('rear delt flyes', 'rear delt fly'),
+    -- hyphen / plural / spacing variants the catalog spells one specific way
+    ('push-up', 'pushups'), ('push-ups', 'pushups'), ('pushup', 'pushups'),
+    ('push up', 'pushups'), ('push ups', 'pushups'), ('press up', 'pushups'),
+    ('press ups', 'pushups'),
+    ('pull up', 'pull-up'), ('pull ups', 'pull-up'), ('pullup', 'pull-up'),
+    ('pullups', 'pull-up'), ('pull-ups', 'pull-up'),
+    ('chin up', 'chin-up'), ('chin ups', 'chin-up'), ('chinup', 'chin-up'),
+    ('chinups', 'chin-up'), ('chin-ups', 'chin-up'),
+    ('sit up', 'sit-up'), ('sit ups', 'sit-up'), ('situp', 'sit-up'),
+    ('situps', 'sit-up'), ('sit-ups', 'sit-up'),
+    ('dips', 'dip'), ('burpees', 'burpee'), ('lunges', 'lunge'),
+    ('crunches', 'crunch'), ('planks', 'plank'), ('box jumps', 'box jump'),
+    ('step ups', 'step-up'), ('step-ups', 'step-up'), ('stepups', 'step-up'),
+    ('kettlebell swings', 'kettlebell swing'), ('kb swing', 'kettlebell swing'),
+    ('kb swings', 'kettlebell swing'), ('swings', 'kettlebell swing'),
+    ('leg presses', 'leg press'), ('leg extensions', 'leg extension'),
+    ('leg curls', 'leg curl'), ('calf raises', 'calf raise'),
+    ('hip thrusts', 'hip thrust'), ('good mornings', 'good morning'),
+    ('glute bridges', 'glute bridge'), ('russian twists', 'russian twist'),
+    ('mountain climbers', 'mountain climber'), ('jumping jacks', 'jumping jack'),
+    ('wall balls', 'wall ball'), ('thrusters', 'thruster'),
+    ('power cleans', 'power clean'), ('hang cleans', 'hang clean'),
+    ('snatches', 'snatch'), ('muscle ups', 'muscle-up'), ('muscle-ups', 'muscle-up'),
+    ('t bar row', 't-bar row'), ('tbar row', 't-bar row'),
+    ('bulgarian split squats', 'bulgarian split squat'),
+    ('split squats', 'split squat'), ('pistol squats', 'pistol squat'),
+    ('air squats', 'air squat'), ('farmers carry', 'farmer carry'),
+    ('farmers walk', 'farmer carry'), ('farmer walk', 'farmer carry'),
+    ('jog', 'running'), ('jogging', 'running'), ('run', 'running'),
+    ('treadmill', 'treadmill run'), ('bike', 'cycling'), ('biking', 'cycling'),
+    ('rower', 'rowing'), ('erg', 'rowing'), ('swim', 'swimming'),
+    ('walk', 'walking'), ('sprints', 'sprint'), ('jump ropes', 'jump rope'),
+    ('skipping', 'jump rope'), ('hang leg raise', 'hanging leg raise'),
+    ('hanging leg raises', 'hanging leg raise'), ('leg raises', 'leg raise'),
+    ('back extensions', 'back extension'), ('inverted rows', 'inverted row'),
+    ('preacher curls', 'preacher curl'), ('cable curls', 'cable curl'),
+    ('concentration curls', 'concentration curl'), ('arnold presses', 'arnold press'),
+    ('upright rows', 'upright row'), ('rack pulls', 'rack pull'),
+    ('sumo deadlifts', 'sumo deadlift'), ('hack squats', 'hack squat'),
+    ('seated rows', 'seated cable row'), ('seated row', 'seated cable row'),
+    ('cable rows', 'seated cable row'), ('cable row', 'seated cable row')
+  ) as a(alias, canonical_name)
+  join public.exercises canonical on canonical.name = a.canonical_name
+ where canonical.canonical_id is null
+on conflict (name) do nothing;

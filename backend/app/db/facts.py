@@ -84,7 +84,13 @@ async def resolve_exercise(conn: asyncpg.Connection, raw_name: str) -> UUID | No
     as the writes that use the returned id.
     """
     exercise_id: UUID | None = await conn.fetchval(
-        "select id from public.exercises where name = $1",
+        # coalesce: a row whose `canonical_id` is set is an ALIAS ("curls", "push-up") and
+        # resolves to the movement it names, so `workout_sets.exercise_id` never points at
+        # an alias — that would fragment the catalog by another door, which is the very
+        # thing AC row 7 exists to prevent. Exactly ONE hop, deliberately: an alias of an
+        # alias is a seeding mistake, and AC row 28 asserts the resolved row is canonical,
+        # so a chained seed fails the suite instead of silently mislogging sets.
+        "select coalesce(canonical_id, id) from public.exercises where name = $1",
         normalize_exercise_name(raw_name),
     )
     return exercise_id
