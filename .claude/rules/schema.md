@@ -37,6 +37,14 @@ table, argue for it here first. (The backend's counterpart rules are in `backend
 ## Security — non-negotiable
 - Enable Row-Level Security (RLS) on every user-facing table.
 - Policy: a user can only read/write rows where `user_id = auth.uid()`.
+- **Least-privilege table grants (issue #37).** `anon`/`service_role` hold *nothing* on
+  `public` tables; `authenticated` holds *only* the verbs the app uses (its `grant … to
+  authenticated`, above) — never TRUNCATE/REFERENCES/TRIGGER/MAINTAIN. Supabase's default
+  ACL hands all four to a new table, so the baseline is enforced by
+  `…_least_privilege_revoke_excess.sql` **plus** an `ALTER DEFAULT PRIVILEGES FOR ROLE postgres`
+  template that strips them from future tables. A new table therefore still needs its explicit
+  `grant … to authenticated` (the default template now grants these roles nothing); it will
+  *not* silently reacquire the excess.
 
 ## Indexes
 - Always index `user_id` (every query and RLS check filters on it).
