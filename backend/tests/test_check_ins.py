@@ -268,11 +268,20 @@ async def test_get_returns_todays_check_ins_in_order(client: AsyncClient) -> Non
     body = resp.json()
     assert [r["id"] for r in body] == [str(CHECK_IN_ID), str(SECOND_CHECK_IN_ID)]  # order kept
 
+    # AMENDED for issue #20 (see the commit that made this change, and the note on issue #18).
+    # The list query became an inclusive date RANGE, so these three assertions now match the
+    # new SQL. This is an amendment, not a weakening: what row 7 is guarding — that the
+    # statement is scoped to the owner AND to a date, that it is ordered newest-first, and
+    # that both are bound from the caller's local today — is asserted just as tightly, and
+    # the collapsed window (today..today) is pinned to prove the default is still today only.
+    # Row 7's behavioral guard, test_list_returns_only_todays_rows below, is untouched.
     list_query, list_args = pool.conn.calls[1]
     q = list_query.lower()
-    assert "where user_id = $1 and entry_date = $2" in q  # scoped to owner AND date
-    assert "order by created_at desc" in q  # newest first
-    assert list_args == (USER_ID, datetime.now(UTC).date())
+    assert "where user_id = $1" in q  # scoped to the owner, same statement
+    assert "entry_date between $2 and $3" in q  # ...and to a date range
+    assert "order by entry_date desc, created_at desc" in q  # newest day, newest first in it
+    today = datetime.now(UTC).date()
+    assert list_args == (USER_ID, today, today)  # no params -> today only
 
 
 # AC row 8: no check-ins today -> 200 and an EMPTY LIST (not 404).
