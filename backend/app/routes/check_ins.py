@@ -4,9 +4,10 @@
 DELETE path is an untrusted client claim, proven-or-denied inside the delete statement.
 """
 
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from app.ai.extractor import ExtractorDep
 from app.auth import UserIdDep
@@ -33,9 +34,27 @@ async def post_check_in(
 
 
 @router.get("/check-ins", response_model=list[CheckInOut])
-async def get_check_ins(user_id: UserIdDep, pool: PoolDep) -> list[CheckInOut]:
-    """The caller's check-ins for today (their local day); an empty list when there are none."""
-    return await list_check_ins(pool, user_id)
+async def get_check_ins(
+    user_id: UserIdDep,
+    pool: PoolDep,
+    days: Annotated[int, Query(ge=1, le=365)] = 1,
+) -> list[CheckInOut]:
+    """The caller's check-ins over the last `days` of their local days; `[]` when there are none.
+
+    `days` defaults to 1 — today only, exactly what this endpoint returned before the window
+    existed, so the daily screen's call is unchanged.
+
+    The bounds are the validation, and they are deliberate rather than decorative. `ge=1`
+    rejects 0 and negatives with a 422 instead of quietly coercing them: a zero window is
+    meaningless and a negative one would invert the BETWEEN into a silently empty screen,
+    which is a client bug we would be hiding (AC rows 5/6). `le=365` is the ONLY bound on
+    response size — there is no pagination in v1 — and it is inclusive: 365 is accepted, 366
+    is a 422 (AC rows 7/8).
+
+    An empty window is a 200 with `[]`, never a 404. "You logged nothing that month" is an
+    answer, not a failure, and a 404 would make the screen render an error over it.
+    """
+    return await list_check_ins(pool, user_id, days)
 
 
 @router.delete("/check-ins/{check_in_id}", status_code=status.HTTP_204_NO_CONTENT)

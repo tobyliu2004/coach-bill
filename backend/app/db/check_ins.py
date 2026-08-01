@@ -36,16 +36,29 @@ async def insert_check_in(
         return row
 
 
-async def list_check_ins_for_date(
-    pool: asyncpg.Pool, user_id: UUID, entry_date: date
+async def list_check_ins_in_range(
+    pool: asyncpg.Pool, user_id: UUID, start: date, end: date
 ) -> list[asyncpg.Record]:
-    """The caller's check-ins for one local day, newest first."""
+    """The caller's check-ins between two local dates, newest day first.
+
+    `between` is INCLUSIVE at both ends, which is the whole semantic of the window the
+    service computes: "7 days" is today plus the six before it, and a row dated exactly
+    `start` is inside it. Today alone is `start == end` — one query serves both the daily
+    screen and history, so they can never drift apart on what a day means.
+
+    Two sort keys, not one: `created_at` alone would interleave days whenever a check-in was
+    back-dated or logged either side of the user's midnight, and the history screen groups by
+    `entry_date`. Ordering by the grouping key first is what makes each day one contiguous
+    block. Covered by `check_ins_user_date_idx` on `(user_id, entry_date)`.
+    """
     async with authed_conn(pool, user_id) as conn:
         rows: list[asyncpg.Record] = await conn.fetch(
             f"select {_COLUMNS} from public.check_ins "
-            f"where user_id = $1 and entry_date = $2 order by created_at desc",
+            f"where user_id = $1 and entry_date between $2 and $3 "
+            f"order by entry_date desc, created_at desc",
             user_id,
-            entry_date,
+            start,
+            end,
         )
         return rows
 
