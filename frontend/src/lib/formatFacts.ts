@@ -79,6 +79,21 @@ export function formatSleep(hours: string, quality: number | null): string {
   return quality === null ? `${shown}h` : `${shown}h · ${quality}/5`
 }
 
+/**
+ * The clock time a check-in was logged, e.g. "7:04 PM".
+ *
+ * Rendered in the browser's local time, which is correct here and only here: `entry_date`
+ * already decided WHICH day this belongs to (the user's, server-side), so this is the
+ * within-day detail and the browser's clock is the one the user is looking at. It is data,
+ * so it is `font-mono tabular-nums` wherever it lands (design.md).
+ *
+ * Lives here rather than in a component because both screens show it and it is a value
+ * turned into a string — exactly this module's job.
+ */
+export function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+}
+
 /** "310 cal · 25P / 2C / 22F" — the macros, compact. */
 export function formatMacros(entry: CheckIn['facts']['nutrition'][number]): string {
   const round = (n: string): number | string => {
