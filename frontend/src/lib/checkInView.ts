@@ -12,6 +12,28 @@
  * first question.
  */
 import { ApiAuthError, type CheckIn } from './api'
+import type { RequestProfile, ScreenRequest } from './dates'
+import { localToday } from './history'
+
+/**
+ * The daily screen's window: exactly one day.
+ *
+ * Exported rather than inlined so a test can pin it (#40). A "helpful" widening to 7 would
+ * be invisible on screen — today's rows still render first — while quietly multiplying this
+ * endpoint's payload for every user on every load.
+ */
+export const TODAY_DAYS = 1
+
+/**
+ * What the Today screen asks for: one day, the USER's local today.
+ *
+ * The /app third of issue #40. `/app` and `/history` and `/trends` must agree on which day
+ * it is — that shared `today` is what stops the three screens disagreeing — while asking for
+ * different window sizes, which is what keeps them different screens.
+ */
+export function todayRequest(profile: RequestProfile | null, now: Date): ScreenRequest {
+  return { days: TODAY_DAYS, today: localToday(profile?.timezone ?? null, now) }
+}
 
 /** Which block belongs under one check-in's text. */
 export type FactsView =

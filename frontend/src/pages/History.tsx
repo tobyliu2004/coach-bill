@@ -6,7 +6,7 @@ import type { CheckIn } from '../lib/api'
 import { errorAction } from '../lib/checkInView'
 import { api } from '../lib/client'
 import { formatTime } from '../lib/formatFacts'
-import { dayLabel, historyView, localToday } from '../lib/history'
+import { dayLabel, historyRequest, historyView } from '../lib/history'
 
 /**
  * Everything you've logged, grouped by day. The first screen in the app that looks backwards.
@@ -21,8 +21,6 @@ import { dayLabel, historyView, localToday } from '../lib/history'
  * your own log is not a moment, it's a reference.
  */
 
-const HISTORY_DAYS = 30
-
 function History() {
   const { profile, signOut } = useAuth()
   // Facts are stored in canonical kg; show them back in the unit the user actually types in.
@@ -32,8 +30,10 @@ function History() {
   // label). The SAME zone feeds the day heading and the clock time inside each card, so the
   // two can never disagree about which day a check-in belongs to.
   const timezone = profile?.timezone ?? null
-  // The instant is read once per render and passed in, never inside the helper.
-  const today = localToday(timezone, new Date())
+  // THE #40 SEAM: which window, and whose "today", are now one tested decision instead of
+  // two inline expressions nothing could assert. The instant is read once per render and
+  // passed in, never inside the helper.
+  const { days: historyDays, today } = historyRequest(profile ?? null, new Date())
 
   const [checkIns, setCheckIns] = useState<CheckIn[]>([])
   const [loading, setLoading] = useState(true)
@@ -44,7 +44,7 @@ function History() {
   // the Today screen); this only carries it out.
   const load = useCallback(async () => {
     try {
-      setCheckIns(await api.listCheckIns(HISTORY_DAYS))
+      setCheckIns(await api.listCheckIns(historyDays))
       setLoadFailed(false)
     } catch (err) {
       if (errorAction(err).kind === 'sign-out') void signOut()
@@ -52,7 +52,7 @@ function History() {
     } finally {
       setLoading(false)
     }
-  }, [signOut])
+  }, [historyDays, signOut])
 
   useEffect(() => {
     void load()
@@ -66,7 +66,7 @@ function History() {
         <div className="flex items-baseline justify-between">
           <h1 className="font-mono text-xs tracking-wider text-fg-muted uppercase">History</h1>
           <span className="font-mono text-xs tabular-nums text-fg-muted">
-            last {HISTORY_DAYS} days
+            last {historyDays} days
           </span>
         </div>
 
@@ -85,7 +85,7 @@ function History() {
         {view.kind === 'empty' && (
           <div className="flex flex-col items-start gap-3">
             <p className="font-display text-display-sm text-fg">
-              Nothing in the last {HISTORY_DAYS} days.
+              Nothing in the last {historyDays} days.
             </p>
             <p className="max-w-md text-base leading-relaxed text-fg-muted">
               Anything you log on Today shows up here, grouped by the day you logged it.
