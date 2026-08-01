@@ -144,6 +144,65 @@ describe('listCheckIns', () => {
   })
 })
 
+// --- history window (issue #20, PR 1) ---
+//
+// Appended, not edited: every assertion above is #18/#19's oracle and stays exactly as it
+// was. `listCheckIns` gains an OPTIONAL `days` argument here; the block below pins both
+// halves of that optionality, because only one of them is a new feature — the other is a
+// regression guard on the screen that already ships.
+
+describe('listCheckIns — the days window', () => {
+  // AC row 1 (REGRESSION GUARD, client half): today's no-argument call must still produce
+  // exactly `/check-ins`. A wrapper that helpfully defaults to `?days=1` would change the
+  // URL the existing /app screen sends — the one thing row 1 forbids.
+  it('sends no query string at all when called with no argument', async () => {
+    const { api, fetchMock } = makeApi({ token: 't', response: jsonResponse(200, [CHECK_IN]) })
+
+    await api.listCheckIns()
+
+    const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('http://api.test/check-ins')
+    expect(url).not.toContain('days')
+  })
+
+  // AC rows 2/7/8 (client half — the transport for the window): the number of days the
+  // caller asked for has to reach the server as `?days=N`. Without this the /history
+  // screen silently renders today only, and every window row above is untestable in the UI.
+  it('sends ?days=N when a window is requested', async () => {
+    const { api, fetchMock } = makeApi({ token: 't', response: jsonResponse(200, [CHECK_IN]) })
+
+    await api.listCheckIns(30)
+
+    const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('http://api.test/check-ins?days=30')
+  })
+
+  // AC row 1 (the other side of the guard): an EXPLICIT 1 is not the same call as no
+  // argument — it carries the param. Asserting only the no-arg case would pass against a
+  // wrapper that dropped `days` whenever it equalled 1, which would quietly cap /history
+  // at a single day the moment someone passed a variable that happened to be 1.
+  it('sends ?days=1 when 1 is passed explicitly', async () => {
+    const { api, fetchMock } = makeApi({ token: 't', response: jsonResponse(200, [CHECK_IN]) })
+
+    await api.listCheckIns(1)
+
+    const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('http://api.test/check-ins?days=1')
+  })
+
+  // AC rows 2/7/8 (client half): the window call is still authenticated and still a GET.
+  it('keeps the Bearer header and the GET method on a windowed call', async () => {
+    const { api, fetchMock } = makeApi({ token: 't', response: jsonResponse(200, []) })
+
+    await api.listCheckIns(7)
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('http://api.test/check-ins?days=7')
+    expect(init.method ?? 'GET').toBe('GET')
+    expect(new Headers(init.headers).get('Authorization')).toBe('Bearer t')
+  })
+})
+
 describe('deleteCheckIn', () => {
   // AC row 11: DELETE /check-ins/{id} to the right path + method with a Bearer header.
   it('DELETEs the id path with the Bearer header', async () => {
