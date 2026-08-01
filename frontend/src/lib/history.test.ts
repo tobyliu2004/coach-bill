@@ -215,3 +215,70 @@ describe('errorAction on the history fetch', () => {
     })
   })
 })
+
+// =======================================================================================
+// Issue #20, PR 2 (Trends) — rows 28 and 29. Also closes #40.
+//
+// APPENDED, never edited: every line above is PR 1's frozen oracle and stays byte-identical.
+// A second `import` from './history' rather than a change to the one at the top of the file,
+// for the same reason — ESM hoists both, and the diff against the oracle commit has to show
+// additions only.
+//
+// Why these two rows are here at all: #40 is that the screen-wiring seam — "which window,
+// computed from whose today" — is untested on all three screens. Row 28 pins History's half
+// of that seam; row 29 pins the `catch` in `localToday` that every one of them falls back
+// through.
+// =======================================================================================
+import { HISTORY_DAYS, historyRequest } from './history'
+
+describe('historyRequest', () => {
+  // AC row 28 (#40, the History screen's half): the same input as row 27 must produce
+  // `days: 30` and the SAME Los Angeles today — at 2026-08-02 00:30 UTC that is
+  // '2026-08-01'. This is the call the /history screen makes; if it is ever rewritten to
+  // compute today from the browser's clock, `today` becomes '2026-08-02' and this fails.
+  it("asks for 30 days ending on the user's local today", () => {
+    expect(
+      historyRequest({ timezone: 'America/Los_Angeles' }, new Date('2026-08-02T00:30:00Z')),
+    ).toEqual({ days: 30, today: '2026-08-01' })
+  })
+
+  // AC row 28: the window is the exported constant, and it is 30 — the same span /trends
+  // asks for, so the two screens can never describe different months (backend row 1).
+  it('is built from the exported HISTORY_DAYS constant, which is 30', () => {
+    expect(HISTORY_DAYS).toBe(30)
+    expect(historyRequest({ timezone: 'UTC' }, new Date('2026-08-01T12:00:00Z')).days).toBe(
+      HISTORY_DAYS,
+    )
+  })
+
+  // AC row 28 (the seatbelt, shared with backend row 4): no profile yet, or a profile with
+  // no timezone, computes the window in UTC rather than throwing mid-render.
+  it('falls back to UTC when there is no profile or no timezone', () => {
+    expect(historyRequest(null, new Date('2026-08-02T00:30:00Z'))).toEqual({
+      days: 30,
+      today: '2026-08-02',
+    })
+    expect(historyRequest({ timezone: null }, new Date('2026-08-02T00:30:00Z'))).toEqual({
+      days: 30,
+      today: '2026-08-02',
+    })
+  })
+})
+
+describe('localToday — the unknown-zone seatbelt', () => {
+  // AC row 29 (#40's fold-in): an IANA zone this browser has never heard of makes
+  // `Intl.DateTimeFormat` throw a RangeError. That `catch` is the last untested seatbelt in
+  // this module, and an uncaught throw here white-screens the app mid-render — so the
+  // fallback is UTC, exactly what the server's `local_today` does for a missing zone.
+  it('falls back to UTC for a zone this runtime does not know, without throwing', () => {
+    expect(() => localToday('Mars/Olympus_Mons', new Date('2026-08-02T00:30:00Z'))).not.toThrow()
+    expect(localToday('Mars/Olympus_Mons', new Date('2026-08-02T00:30:00Z'))).toBe('2026-08-02')
+  })
+
+  // AC row 29 (the distinguishing half): the fallback is UTC specifically, not "whatever
+  // the runner's zone happens to be". Asserting only the LA-evening instant above would
+  // pass on a machine set to UTC either way; this instant is unambiguous in UTC.
+  it('produces the UTC date, not the runtime default zone, for an unknown zone', () => {
+    expect(localToday('Not/AZone', new Date('2026-01-01T00:05:00Z'))).toBe('2026-01-01')
+  })
+})
