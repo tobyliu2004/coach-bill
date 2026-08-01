@@ -134,48 +134,60 @@ function Dashboard({ trends, unit }: { trends: TrendsPayload; unit: 'lb' | 'kg' 
     end,
   )
 
-  const sleep = sparkline(toPoints(trends.sleep.map((p) => ({ date: p.date, value: p.hours }))))
-  const bodyweight = sparkline(
-    toPoints(trends.bodyweight.map((p) => ({ date: p.date, value: p.weight_kg }))),
+  // The parsed points are kept, not just the line, so the printed reading and the line it
+  // sits next to come from ONE parse. Printing the payload's raw Decimal string alongside a
+  // range computed from parsed numbers is two formatters for one quantity: a `sum(calories)`
+  // that comes back as "2000.00" would read "2000.00 kcal" directly above "1100–2600 kcal".
+  const sleepPoints = toPoints(trends.sleep.map((p) => ({ date: p.date, value: p.hours })))
+  const bodyweightPoints = toPoints(
+    trends.bodyweight.map((p) => ({ date: p.date, value: p.weight_kg })),
   )
-  const calories = sparkline(
-    toPoints(trends.nutrition.map((p) => ({ date: p.date, value: p.calories }))),
-  )
+  const caloriePoints = toPoints(trends.nutrition.map((p) => ({ date: p.date, value: p.calories })))
+
+  // "peak" is a MEASUREMENT, and when there are no weighted sets in the window there isn't
+  // one — `barLayout` reports max 0 for an empty series, and `formatWeight('0')` is a
+  // perfectly finite "0 lb", so the ?? fallback never fires. Rendering that would be this
+  // feature's own null-vs-zero lie in the presentation layer: a month of pushups would read
+  // "peak 0 lb" directly above the line saying there was no load to measure.
+  const peak = volume.bars.length === 0 ? null : formatWeight(String(volume.max), unit)
 
   return (
     <div className="flex flex-col gap-10">
-      <section className="flex flex-col gap-3">
-        <div className="flex items-baseline justify-between">
-          <h2 className="font-mono text-xs tracking-wider text-fg-muted uppercase">
-            Daily volume
-          </h2>
-          <span className="font-mono text-xs tabular-nums text-fg">
-            peak {formatWeight(String(volume.max), unit) ?? '—'}
-          </span>
-        </div>
+      {/* Gated on the series, not on the bars: a window with only bodyweight work still has
+          a volume story (the baseline ticks and the caption). A window with no training at
+          all has none, and an empty chart under a "Daily volume" heading is furniture. */}
+      {trends.volume.length > 0 && (
+        <section className="flex flex-col gap-3">
+          <div className="flex items-baseline justify-between">
+            <h2 className="font-mono text-xs tracking-wider text-fg-muted uppercase">
+              Daily volume
+            </h2>
+            <span className="font-mono text-xs tabular-nums text-fg">peak {peak ?? '—'}</span>
+          </div>
 
-        <BarChart
-          bars={volume.bars}
-          marks={bodyweightOnly.bars}
-          label={`Daily training volume from ${monthDay(start)} to ${monthDay(end)}, peaking at ${
-            formatWeight(String(volume.max), unit) ?? 'no measured load'
-          }`}
-        />
+          <BarChart
+            bars={volume.bars}
+            marks={bodyweightOnly.bars}
+            label={`Daily training volume from ${monthDay(start)} to ${monthDay(end)}, ${
+              peak === null ? 'no measured load' : `peaking at ${peak}`
+            }`}
+          />
 
-        {/* A date is data (design.md): tabular-nums so the axis doesn't jitter. Both ends
-            come from the payload, so they can never disagree with the bars above them. */}
-        <div className="flex items-baseline justify-between font-mono text-xs tabular-nums text-fg-muted">
-          <span>{monthDay(start)}</span>
-          <span>{monthDay(end)}</span>
-        </div>
+          {/* A date is data (design.md): tabular-nums so the axis doesn't jitter. Both ends
+              come from the payload, so they can never disagree with the bars above them. */}
+          <div className="flex items-baseline justify-between font-mono text-xs tabular-nums text-fg-muted">
+            <span>{monthDay(start)}</span>
+            <span>{monthDay(end)}</span>
+          </div>
 
-        {bodyweightOnly.bars.length > 0 && (
-          <p className="font-mono text-xs text-fg-muted">
-            {bodyweightOnly.bars.length} day{bodyweightOnly.bars.length === 1 ? '' : 's'} of
-            bodyweight-only work — marked on the baseline, no load to measure.
-          </p>
-        )}
-      </section>
+          {bodyweightOnly.bars.length > 0 && (
+            <p className="font-mono text-xs tabular-nums text-fg-muted">
+              {bodyweightOnly.bars.length} day{bodyweightOnly.bars.length === 1 ? '' : 's'} of
+              bodyweight-only work — marked on the baseline, no load to measure.
+            </p>
+          )}
+        </section>
+      )}
 
       {trends.exercises.length > 0 && (
         <section className="flex flex-col gap-3">
@@ -231,46 +243,25 @@ function Dashboard({ trends, unit }: { trends: TrendsPayload; unit: 'lb' | 'kg' 
         <h2 className="font-mono text-xs tracking-wider text-fg-muted uppercase">
           Sleep · bodyweight · calories
         </h2>
-        <Trace
-          title="Sleep"
-          line={sleep}
-          reading={sleep.points === '' ? null : `${trends.sleep[trends.sleep.length - 1].hours} h`}
-          range={sleep.points === '' ? null : `${sleep.min}–${sleep.max} h`}
-        />
+        <Trace title="Sleep" points={sleepPoints} format={(hours) => `${hours} h`} />
         <Trace
           title="Bodyweight"
-          line={bodyweight}
-          reading={
-            bodyweight.points === ''
-              ? null
-              : formatWeight(trends.bodyweight[trends.bodyweight.length - 1].weight_kg, unit)
-          }
-          range={
-            bodyweight.points === ''
-              ? null
-              : `${formatWeight(String(bodyweight.min), unit)}–${formatWeight(
-                  String(bodyweight.max),
-                  unit,
-                )}`
-          }
+          points={bodyweightPoints}
+          format={(kg) => formatWeight(String(kg), unit) ?? '—'}
         />
-        <Trace
-          title="Calories"
-          line={calories}
-          reading={
-            calories.points === ''
-              ? null
-              : `${trends.nutrition[trends.nutrition.length - 1].calories} kcal`
-          }
-          range={calories.points === '' ? null : `${calories.min}–${calories.max} kcal`}
-        />
+        <Trace title="Calories" points={caloriePoints} format={(kcal) => `${kcal} kcal`} />
       </section>
     </div>
   )
 }
 
 /**
- * One labelled sparkline row. `reading` is the most recent value, `range` the window's span.
+ * One labelled sparkline row: the latest reading, the line, and the window's range.
+ *
+ * Takes the PARSED points, not the raw payload, so the printed numbers and the drawn line
+ * come from one parse. Passing the payload's Decimal strings for the reading while scaling
+ * the line from parsed numbers would be two formatters for one quantity — a stored "7.50"
+ * would print "7.50 h" above a "7.5–8 h" range.
  *
  * A sparkline is read as shape, so the numbers are printed beside it rather than inferred
  * from the line — and an empty series says so in words instead of drawing a flat line at
@@ -278,21 +269,24 @@ function Dashboard({ trends, unit }: { trends: TrendsPayload; unit: 'lb' | 'kg' 
  */
 function Trace({
   title,
-  line,
-  reading,
-  range,
+  points,
+  format,
 }: {
   title: string
-  line: { points: string }
-  reading: string | null
-  range: string | null
+  points: SeriesPoint[]
+  format: (value: number) => string
 }) {
+  const line = sparkline(points)
+  // The series arrives oldest-first (backend AC row 9), so the last point is the most recent.
+  const latest = points.length === 0 ? null : format(points[points.length - 1].value)
+  const range = points.length === 0 ? null : `${format(line.min)}–${format(line.max)}`
+
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-baseline justify-between">
         <span className="font-mono text-xs tracking-wider text-fg-muted uppercase">{title}</span>
         <span className="font-mono text-xs tabular-nums text-fg">
-          {reading ?? <span className="text-fg-muted">nothing logged</span>}
+          {latest ?? <span className="text-fg-muted">nothing logged</span>}
         </span>
       </div>
       {line.points !== '' && <Sparkline points={line.points} label={`${title}: ${range}`} />}
