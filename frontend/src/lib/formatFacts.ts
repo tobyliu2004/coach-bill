@@ -79,6 +79,34 @@ export function formatSleep(hours: string, quality: number | null): string {
   return quality === null ? `${shown}h` : `${shown}h · ${quality}/5`
 }
 
+/**
+ * The clock time a check-in was logged, e.g. "7:04 PM", in the USER's timezone.
+ *
+ * The zone is a required argument, not the browser's default, and that is the whole point.
+ * The day this check-in belongs to was decided server-side from `profiles.timezone`, and
+ * the History screen labels its day headers from that same zone. If the clock underneath
+ * came from the browser instead, the two halves of one card could disagree about which day
+ * it is: an LA user's 19:00 check-in on Aug 1, opened on a laptop set to Tokyo, sits under
+ * an "Aug 1" heading reading "11:00 AM" — a Tokyo time on Aug 2. One source of truth for
+ * "when", or none.
+ *
+ * `'en-US'` rather than the browser locale, deliberately: every other date string the app
+ * renders is English (see `dayLabel`'s month names), and a 24-hour clock under an English
+ * month name is the same split-brain one level down. It also makes this testable.
+ *
+ * It is data, so it is `font-mono tabular-nums` wherever it lands (design.md).
+ */
+export function formatTime(iso: string, timezone: string | null): string {
+  const shape: Intl.DateTimeFormatOptions = { hour: 'numeric', minute: '2-digit' }
+  try {
+    return new Date(iso).toLocaleTimeString('en-US', { ...shape, timeZone: timezone ?? 'UTC' })
+  } catch {
+    // An IANA zone this browser doesn't know throws RangeError. Same seatbelt, and the same
+    // UTC fallback, as `localToday` in history.ts and `local_today` on the server.
+    return new Date(iso).toLocaleTimeString('en-US', { ...shape, timeZone: 'UTC' })
+  }
+}
+
 /** "310 cal · 25P / 2C / 22F" — the macros, compact. */
 export function formatMacros(entry: CheckIn['facts']['nutrition'][number]): string {
   const round = (n: string): number | string => {

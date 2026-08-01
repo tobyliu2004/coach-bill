@@ -1,111 +1,35 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../auth/useAuth'
+import { AppShell } from '../components/AppShell'
+import { Facts } from '../components/Facts'
 import { api } from '../lib/client'
 import type { CheckIn } from '../lib/api'
-import { errorAction, factsView, listView } from '../lib/checkInView'
-import { formatMacros, formatSleep, formatWeight, toSetLines } from '../lib/formatFacts'
+import { errorAction, listView } from '../lib/checkInView'
+import { formatTime } from '../lib/formatFacts'
 
 /**
- * The daily app shell + the text check-in flow. Deliberately quiet — no Lenis, no
+ * The text check-in flow — today, and only today. Deliberately quiet: no Lenis, no
  * signature moments; those are spent on marketing. This screen optimizes for speed:
  * type a check-in, it lands in today's list instantly, delete reconciles on the spot.
  * Logging is a repeated action, so nothing here animates (design.md).
+ *
+ * The header moved to `AppShell` and the extracted-facts block to `components/Facts` when
+ * History needed both. Neither was copied — a duplicated header is how a sign-out button
+ * ends up in two places and drifts apart.
  */
 
 const composeClasses =
   'w-full resize-none rounded-control border border-edge-strong bg-bg px-3 py-3 text-sm ' +
   'text-fg placeholder:text-fg-muted focus:border-fg-muted focus:outline-none'
 
-// created_at is data → mono, tabular. Local time, since "today" is already the user's day.
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-}
-
-/** One extracted fact: a quiet label and the number it stands for. */
-function FactRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-baseline justify-between gap-4">
-      <span className="min-w-0 truncate font-mono text-xs text-fg-muted">{label}</span>
-      <span className="shrink-0 font-mono text-xs tabular-nums text-fg">{value}</span>
-    </div>
-  )
-}
-
-/**
- * What Bill read out of a check-in — the trust mechanism for the whole AI loop. If the user
- * can't see what was extracted, they can't tell a good parse from a wrong one, and a wrong
- * number they never see is worse than no number at all.
- *
- * Rendering notes (design.md): the card already spent `bg-surface`, so this separates with a
- * `border-edge` divider INSIDE it rather than stepping up to `bg-raised` (spec'd for
- * popovers). Every number is `font-mono tabular-nums`. Nothing animates — the list is a
- * repeated-action surface, and animating height is banned outright.
- */
-function Facts({ checkIn, unit }: { checkIn: CheckIn; unit: 'lb' | 'kg' }) {
-  const view = factsView(checkIn)
-
-  // 'failed' and 'none' must never look alike: a failure that renders as an empty state is
-  // indistinguishable from data loss (#18's exact bug). Muted, not red — there is no red
-  // token, and this is information, not an emergency.
-  if (view.kind === 'failed') {
-    return (
-      <p role="alert" className="mt-3 border-t border-edge pt-3 font-mono text-xs text-fg-muted">
-        Bill couldn’t read this one. Your words are saved.
-      </p>
-    )
-  }
-  // Something was found and then dropped, and nothing else survived. Distinct from 'none':
-  // there IS something to say. Silence here would be a lie of omission.
-  if (view.kind === 'dropped') {
-    return (
-      <p role="alert" className="mt-3 border-t border-edge pt-3 font-mono text-xs text-fg-muted">
-        Bill couldn’t read that exercise, so nothing was logged. Your words are saved.
-      </p>
-    )
-  }
-  // Nothing to extract is SUCCESS (Toby's row-11 call) — render the text and stop. No block,
-  // no error, nothing that implies something went wrong.
-  if (view.kind === 'none') return null
-
-  const { facts, partial } = view
-  return (
-    <div className="mt-3 flex flex-col gap-1.5 border-t border-edge pt-3">
-      {toSetLines(facts.sets, unit).map((line) => (
-        <FactRow
-          key={line.key}
-          label={line.exercise}
-          value={line.load === null ? line.volume : `${line.volume} · ${line.load}`}
-        />
-      ))}
-      {facts.nutrition.map((entry) => (
-        <FactRow key={entry.id} label={entry.description} value={formatMacros(entry)} />
-      ))}
-      {facts.sleep.map((entry) => (
-        <FactRow key={entry.id} label="sleep" value={formatSleep(entry.hours, entry.quality)} />
-      ))}
-      {facts.bodyweight.map((entry) => (
-        <FactRow
-          key={entry.id}
-          label="bodyweight"
-          value={formatWeight(entry.weight_kg, unit) ?? '—'}
-        />
-      ))}
-      {partial && (
-        <p role="alert" className="pt-1 font-mono text-xs text-fg-muted">
-          One item didn’t read — the rest is logged.
-        </p>
-      )}
-    </div>
-  )
-}
-
 function AppHome() {
-  const { profile, session, signOut } = useAuth()
-  // ProtectedRoute only renders this once the profile is loaded.
-  const name = profile?.display_name ?? session?.user.email ?? 'you'
+  const { profile, signOut } = useAuth()
   // Facts are stored in canonical kg; show them back in the unit the user actually types in.
   // Same fallback as the column's own default.
   const unit = profile?.weight_unit ?? 'lb'
+  // The user's zone, not the browser's — the same source `entry_date` was stamped from, so
+  // a logged time can never belong to a different day than the one it's filed under.
+  const timezone = profile?.timezone ?? null
 
   const [text, setText] = useState('')
   const [checkIns, setCheckIns] = useState<CheckIn[]>([])
@@ -173,25 +97,7 @@ function AppHome() {
   }
 
   return (
-    <div className="flex min-h-dvh flex-col">
-      <header className="border-b border-edge">
-        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-4">
-          <span className="font-display text-lg font-semibold tracking-tight text-fg">
-            Coach Bill
-          </span>
-          <div className="flex items-center gap-4">
-            <span className="font-mono text-xs text-fg-muted">{name}</span>
-            <button
-              type="button"
-              onClick={() => void signOut()}
-              className="rounded-control border border-edge-strong px-3 py-1.5 text-xs font-semibold text-fg transition-colors duration-150 hover:border-fg-muted"
-            >
-              Sign out
-            </button>
-          </div>
-        </div>
-      </header>
-
+    <AppShell>
       <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-6 py-12">
         {profile?.goal && (
           <p className="font-mono text-xs tracking-wider text-fg-muted uppercase">
@@ -269,7 +175,7 @@ function AppHome() {
                         {checkIn.raw_text}
                       </p>
                       <span className="font-mono text-xs tabular-nums text-fg-muted">
-                        {formatTime(checkIn.created_at)}
+                        {formatTime(checkIn.created_at, timezone)}
                       </span>
                     </div>
                     <button
@@ -297,7 +203,7 @@ function AppHome() {
           </div>
         )}
       </main>
-    </div>
+    </AppShell>
   )
 }
 

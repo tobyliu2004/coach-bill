@@ -143,8 +143,17 @@ export function createApi({
     createCheckIn(text: string): Promise<CheckIn> {
       return request<CheckIn>('/check-ins', { method: 'POST', body: JSON.stringify({ text }) })
     },
-    listCheckIns(): Promise<CheckIn[]> {
-      return request<CheckIn[]>('/check-ins')
+    /**
+     * The caller's check-ins. With no argument: today only — the backend's own default, and
+     * the call the daily screen already makes.
+     *
+     * `days` is left off the URL entirely when it wasn't asked for, rather than sent as
+     * `?days=1`. The two are equivalent to the server, but only the bare URL is the request
+     * /app was already sending, and "the existing screen's traffic is byte-identical" is a
+     * property worth being able to state rather than reason about.
+     */
+    listCheckIns(days?: number): Promise<CheckIn[]> {
+      return request<CheckIn[]>(days === undefined ? '/check-ins' : `/check-ins?days=${days}`)
     },
     deleteCheckIn(id: string): Promise<void> {
       return request<void>(`/check-ins/${id}`, { method: 'DELETE' })

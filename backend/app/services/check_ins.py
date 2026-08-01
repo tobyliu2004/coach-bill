@@ -4,6 +4,7 @@ route decides that means 404.
 """
 
 import logging
+from datetime import timedelta
 from uuid import UUID
 
 import asyncpg
@@ -67,10 +68,27 @@ async def create_check_in(
     return CheckInOut(**{**dict(row), "extraction_status": status}, facts=facts)
 
 
-async def list_check_ins(pool: asyncpg.Pool, user_id: UUID) -> list[CheckInOut]:
-    """The caller's check-ins for their local today, newest first, facts bundled in."""
+async def list_check_ins(pool: asyncpg.Pool, user_id: UUID, days: int = 1) -> list[CheckInOut]:
+    """The caller's check-ins over the last `days` local days, newest first, facts bundled in.
+
+    The window is INCLUSIVE of today and of its first day: `days=7` is today plus the six
+    before it, not today plus seven. That reading is a judgment call (issue #20, AC row 2) —
+    a user asking for "7 days" means a week of their life, and the alternative silently shows
+    an eight-day week.
+
+    Both ends come from `local_today(tz)`, so the window is anchored to the USER's calendar
+    day, never the server's. At 00:30 UTC an evening check-in in Los Angeles is still today's
+    (AC row 3); computing this from the server clock is precisely how it would vanish.
+
+    `days` defaults to 1 so the whole window collapses to `today..today` — byte-identical in
+    effect to the single-date query this replaced, which is what keeps the existing `/app`
+    screen (and every existing caller) unchanged.
+    """
     tz = await get_user_timezone(pool, user_id)
-    rows = await check_ins_db.list_check_ins_for_date(pool, user_id, local_today(tz))
+    end = local_today(tz)
+    # days - 1: the window already contains `end` itself, so a 1-day window subtracts nothing.
+    start = end - timedelta(days=days - 1)
+    rows = await check_ins_db.list_check_ins_in_range(pool, user_id, start, end)
     if not rows:
         return []
 

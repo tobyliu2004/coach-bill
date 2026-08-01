@@ -92,3 +92,36 @@ describe('signed in and onboarded', () => {
     expect(resolveDestination(onboarded, '/auth/reset')).toBeNull()
   })
 })
+
+// --- /history is a protected in-app path (issue #20, PR 1 — rows 17-20) ---
+//
+// Appended, not edited: every test above is #17's oracle and stays byte-identical. The
+// four rows below are one guard each on the same terminal line, which today reads
+// `return path === '/app' ? null : '/app'` — the line the build has to teach about a
+// SECOND in-app path without breaking the first.
+
+describe('/history as a destination', () => {
+  // AC row 17: an onboarded user on /history stays put. Without this the new screen is
+  // literally unreachable — the terminal line bounces everything that isn't '/app'.
+  it('lets an onboarded user stay on /history', () => {
+    expect(resolveDestination(onboarded, '/history')).toBeNull()
+  })
+
+  // AC row 18: a signed-out visitor to /history goes to /login. A protected screen that
+  // does not redirect signed-out users is a hole, not a convenience.
+  it('sends a signed-out visitor from /history to /login', () => {
+    expect(resolveDestination(signedOut, '/history')).toBe('/login')
+  })
+
+  // AC row 19: an un-onboarded user goes to /onboarding. They have no timezone yet, so
+  // their history would be computed in UTC — the #18 bug arriving through the front door.
+  it('funnels a not-yet-onboarded user from /history to /onboarding', () => {
+    expect(resolveDestination(fresh, '/history')).toBe('/onboarding')
+  })
+
+  // AC row 20 (REGRESSION GUARD): /app still stays put once /history exists. Rows 17 and
+  // 20 together are what stop the fix for one path from inverting the other.
+  it('still leaves an onboarded user alone on /app', () => {
+    expect(resolveDestination(onboarded, '/app')).toBeNull()
+  })
+})

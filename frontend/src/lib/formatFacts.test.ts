@@ -9,7 +9,7 @@
  * the user typed is not the number the app shows them.
  */
 import { describe, expect, it } from 'vitest'
-import { formatMacros, formatSleep, formatWeight, toSetLines } from './formatFacts'
+import { formatMacros, formatSleep, formatTime, formatWeight, toSetLines } from './formatFacts'
 import type { WorkoutSet } from './api'
 
 function set(overrides: Partial<WorkoutSet> = {}): WorkoutSet {
@@ -102,5 +102,34 @@ describe('formatMacros', () => {
         meal: null,
       }),
     ).toBe('310 cal · 25P / 2C / 22F')
+  })
+})
+
+// --- formatTime (added at /ship, from a reviewer finding on PR #39) ---
+//
+// NOT part of issue #20's oracle — these tests were written after the implementation, and
+// they say so, because the honest label matters more than the appearance of coverage. The
+// bug they pin was found by `project-reviewer`: the clock time was rendered in the BROWSER's
+// zone while the day heading above it came from `profiles.timezone`, so the two halves of
+// one card could disagree about which day a check-in belonged to.
+
+describe('formatTime', () => {
+  // The finding, exactly: an LA user's 19:00 check-in on Aug 1 is filed under entry_date
+  // 2026-08-01. Read from a laptop set to Tokyo it must still say 7:00 PM, not 11:00 AM —
+  // an 11:00 AM under an "Aug 1" heading is a Tokyo time on Aug 2.
+  it("renders in the user's zone, not the runtime's", () => {
+    expect(formatTime('2026-08-02T02:00:00Z', 'America/Los_Angeles')).toBe('7:00 PM')
+    expect(formatTime('2026-08-02T02:00:00Z', 'Asia/Tokyo')).toBe('11:00 AM')
+  })
+
+  // Same seatbelt the server and `localToday` take: no timezone means UTC, never a crash.
+  it('falls back to UTC when the profile has no timezone', () => {
+    expect(formatTime('2026-08-02T02:00:00Z', null)).toBe('2:00 AM')
+  })
+
+  // An IANA zone this runtime doesn't know throws RangeError inside Intl. Rendering a time
+  // is not worth white-screening a screen over.
+  it('falls back to UTC rather than throwing on an unknown zone', () => {
+    expect(formatTime('2026-08-02T02:00:00Z', 'Mars/Olympus_Mons')).toBe('2:00 AM')
   })
 })
