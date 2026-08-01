@@ -27,10 +27,13 @@ function History() {
   const { profile, signOut } = useAuth()
   // Facts are stored in canonical kg; show them back in the unit the user actually types in.
   const unit = profile?.weight_unit ?? 'lb'
-  // The USER's today, from their profile timezone — not the browser's. A traveller's laptop
-  // set to another zone must not relabel their evening check-in "Yesterday" (#18's bug on
-  // the label). The instant is read once per render and passed in, never inside the helper.
-  const today = localToday(profile?.timezone ?? null, new Date())
+  // The USER's zone, from their profile — not the browser's. A traveller's laptop set to
+  // another zone must not relabel their evening check-in "Yesterday" (#18's bug on the
+  // label). The SAME zone feeds the day heading and the clock time inside each card, so the
+  // two can never disagree about which day a check-in belongs to.
+  const timezone = profile?.timezone ?? null
+  // The instant is read once per render and passed in, never inside the helper.
+  const today = localToday(timezone, new Date())
 
   const [checkIns, setCheckIns] = useState<CheckIn[]>([])
   const [loading, setLoading] = useState(true)
@@ -61,7 +64,7 @@ function History() {
     <AppShell>
       <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-8 px-6 py-12">
         <div className="flex items-baseline justify-between">
-          <span className="font-mono text-xs tracking-wider text-fg-muted uppercase">History</span>
+          <h1 className="font-mono text-xs tracking-wider text-fg-muted uppercase">History</h1>
           <span className="font-mono text-xs tabular-nums text-fg-muted">
             last {HISTORY_DAYS} days
           </span>
@@ -75,11 +78,17 @@ function History() {
           </p>
         )}
 
+        {/* Scoped to the WINDOW, not the account. "Nothing here yet" would tell a returning
+            user who took a month off that their history doesn't exist — the same
+            failure-reads-as-data-loss shape rows 21/22 exist to prevent, one level down.
+            We only know this window is empty; we know nothing about the year before it. */}
         {view.kind === 'empty' && (
           <div className="flex flex-col items-start gap-3">
-            <h1 className="font-display text-display-sm text-fg">Nothing here yet.</h1>
+            <p className="font-display text-display-sm text-fg">
+              Nothing in the last {HISTORY_DAYS} days.
+            </p>
             <p className="max-w-md text-base leading-relaxed text-fg-muted">
-              Log a check-in on Today and it shows up here, grouped by the day you logged it.
+              Anything you log on Today shows up here, grouped by the day you logged it.
             </p>
           </div>
         )}
@@ -89,7 +98,9 @@ function History() {
             {view.days.map((day) => (
               <section key={day.date} className="flex flex-col gap-3">
                 <div className="flex items-baseline justify-between">
-                  <h2 className="font-mono text-xs tracking-wider text-fg-muted uppercase">
+                  {/* A date is data (design.md): tabular-nums so "Jul 5" and "Jul 25" line
+                      up down the page instead of jittering against each other. */}
+                  <h2 className="font-mono text-xs tracking-wider tabular-nums text-fg-muted uppercase">
                     {dayLabel(day.date, today)}
                   </h2>
                   <span className="font-mono text-xs tabular-nums text-fg-muted">
@@ -104,7 +115,7 @@ function History() {
                           {checkIn.raw_text}
                         </p>
                         <span className="font-mono text-xs tabular-nums text-fg-muted">
-                          {formatTime(checkIn.created_at)}
+                          {formatTime(checkIn.created_at, timezone)}
                         </span>
                       </div>
                       <Facts checkIn={checkIn} unit={unit} />

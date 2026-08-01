@@ -277,8 +277,12 @@ async def test_get_returns_todays_check_ins_in_order(client: AsyncClient) -> Non
     # Row 7's behavioral guard, test_list_returns_only_todays_rows below, is untouched.
     list_query, list_args = pool.conn.calls[1]
     q = list_query.lower()
-    assert "where user_id = $1" in q  # scoped to the owner, same statement
-    assert "entry_date between $2 and $3" in q  # ...and to a date range
+    # ONE contiguous string, not two independent substring checks. Two would also pass a
+    # statement where the owner filter and the date predicate lived in different clauses (a
+    # UNION arm, a subquery) — and "conjoined in the same clause" is precisely what backend
+    # rule 2 requires. Tightened at /ship on a reviewer finding; strictly stronger than both
+    # the original assertion and the first draft of this amendment.
+    assert "where user_id = $1 and entry_date between $2 and $3" in q
     assert "order by entry_date desc, created_at desc" in q  # newest day, newest first in it
     today = datetime.now(UTC).date()
     assert list_args == (USER_ID, today, today)  # no params -> today only

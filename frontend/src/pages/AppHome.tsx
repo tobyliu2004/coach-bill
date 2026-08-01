@@ -27,6 +27,9 @@ function AppHome() {
   // Facts are stored in canonical kg; show them back in the unit the user actually types in.
   // Same fallback as the column's own default.
   const unit = profile?.weight_unit ?? 'lb'
+  // The user's zone, not the browser's — the same source `entry_date` was stamped from, so
+  // a logged time can never belong to a different day than the one it's filed under.
+  const timezone = profile?.timezone ?? null
 
   const [text, setText] = useState('')
   const [checkIns, setCheckIns] = useState<CheckIn[]>([])
@@ -172,7 +175,7 @@ function AppHome() {
                         {checkIn.raw_text}
                       </p>
                       <span className="font-mono text-xs tabular-nums text-fg-muted">
-                        {formatTime(checkIn.created_at)}
+                        {formatTime(checkIn.created_at, timezone)}
                       </span>
                     </div>
                     <button
