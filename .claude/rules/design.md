@@ -31,6 +31,16 @@ is the brand, not a mode. (Semantic tokens keep a future light theme cheap.)
 - **Every number the user reads is data**: `font-mono tabular-nums` (add `slashed-zero` where
   0/O confusion matters). Weights, reps, calories, dates, timers — no exceptions. Digits must
   align in columns and not jiggle when they change.
+- **Every date or time the user reads is rendered from `profiles.timezone` — never the
+  browser's.** Pass the zone in explicitly (`formatTime(iso, timezone)`, `localToday(tz, now)`);
+  never let a helper reach for `Intl`'s default or a bare `new Date(...).toLocaleString()`. A
+  missing zone falls back to UTC, the same seatbelt the server's `local_today` takes. Prefer a
+  fixed `'en-US'` locale over the browser's so the output is deterministic and testable.
+  **Why this is a rule and not a preference:** the day a check-in belongs to is decided
+  server-side from the profile zone, so any browser-zone rendering next to it can disagree with
+  it. PR #39 shipped a review away from exactly that — an LA user's 19:00 Aug-1 check-in, opened
+  on a laptop set to Tokyo, read "11:00 AM" (an Aug-2 time) under an "Aug 1" heading. This
+  project has now gotten the same class of bug wrong twice (#18 in the query, #39 on the label).
 
 ## Shape & space
 - **Two radii only**: `rounded-control` (6px — buttons, inputs, chips) and `rounded-card`

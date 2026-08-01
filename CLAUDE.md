@@ -120,3 +120,9 @@ judgment calls and deep-dives ONE load-bearing file with Claude (learning goal);
 the word to merge. **Claude may run the merge itself once Toby authorizes it** — the review, the
 disposition of every finding, and any explanation Toby asks for still come first and are never
 skipped; only the mechanical click is delegated. Toby can always merge by hand instead.
+
+**Merge with a MERGE COMMIT, never a squash** (`gh pr merge <n> --merge --delete-branch`). The
+oracle commit has to stay individually reachable on `main`: `/ship` step 2 diffs the tests against
+it, and every future session's claim that "the tests predate the code" is only auditable if that
+commit still exists as its own sha. A squash collapses the whole branch into one blob and quietly
+destroys the evidence the correctness gate runs on. The messy history is the point.
