@@ -13,7 +13,19 @@ export interface AuthSnapshot {
   onboarded: boolean | null
 }
 
-const PROTECTED_PATHS = ['/app', '/onboarding']
+/**
+ * The signed-in app itself — the screens an onboarded user moves *between*.
+ *
+ * Before /history there was one, so the terminal rule below could be written as
+ * `path === '/app'`. That reading conflated two different questions ("is this the app?" and
+ * "is this THE app screen?"), and the moment a second screen existed it bounced the user
+ * straight back to /app — a new route that is unreachable by construction. Membership, not
+ * equality, is what makes adding the third screen a one-line change.
+ */
+const APP_PATHS = ['/app', '/history']
+
+/** Everything that requires a session: the app, plus the onboarding that gates it. */
+const PROTECTED_PATHS = [...APP_PATHS, '/onboarding']
 
 /** The profile fields the gate reads (structural so this module stays react-free). */
 export interface ProfileGate {
@@ -57,6 +69,7 @@ export function resolveDestination(auth: AuthSnapshot, path: string): string | n
     return path === '/onboarding' ? null : '/onboarding'
   }
 
-  // Onboarded: the auth pages and onboarding no longer apply.
-  return path === '/app' ? null : '/app'
+  // Onboarded: the auth pages and onboarding no longer apply. Anywhere inside the app is
+  // somewhere they may be; everything else lands them on /app.
+  return APP_PATHS.includes(path) ? null : '/app'
 }
