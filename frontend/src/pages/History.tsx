@@ -134,7 +134,8 @@ function History() {
                         requesting={false}
                         failed={false}
                         live={false}
-                        onRetry={() => {}}
+                        onRequest={() => {}}
+                        onRetract={() => {}}
                       />
                     </li>
                   ))}

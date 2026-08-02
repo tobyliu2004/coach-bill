@@ -115,8 +115,16 @@ C3_APP_VERBS: dict[str, dict[str, bool]] = {
     "nutrition_entries": {"select": True, "insert": True, "update": False, "delete": True},
     "sleep_entries": {"select": True, "insert": True, "update": False, "delete": True},
     "bodyweight_entries": {"select": True, "insert": True, "update": False, "delete": True},
-    # #21 AC row 32 (🔓 amends this frozen oracle — see the block above).
-    "coach_messages": {"select": True, "insert": True, "update": False, "delete": False},
+    # #21 AC row 32 (🔓 amends this frozen oracle — see the block above), then AMENDED AGAIN
+    # for `delete` by the PR #47 review: a mislabelled `off_topic` reply was otherwise
+    # permanent, with no re-classify path. Toby approved that second amendment explicitly
+    # (2026-08-02) and chose its narrow shape. `update` stays False — a reply's text must
+    # never change under a user who already read it; a replacement goes through the same
+    # guarded insert as an original. The "only off-topic replies are retractable" rule is a
+    # SERVICE-level check (`services/coach.py::retract_off_topic_reply`), because SQL grants
+    # cannot express it — see the migration's comment for why that distinction is a safety
+    # property and not a nicety.
+    "coach_messages": {"select": True, "insert": True, "update": False, "delete": True},
 }
 
 

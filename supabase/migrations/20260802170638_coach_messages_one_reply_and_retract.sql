@@ -1,0 +1,65 @@
+-- Issue #21, PR #47 review follow-up. Two changes, both approved by Toby before being made.
+--
+-- =====================================================================================
+-- 1. ONE ASSISTANT REPLY PER CHECK-IN — the database enforces what the code assumed
+-- =====================================================================================
+--
+-- AC row 2 requires get-or-create: a second request returns the same reply, spends no model
+-- call, and leaves exactly one row. The service implements that as read-then-insert, which
+-- is correct for SEQUENTIAL requests and is what the oracle exercises — but two CONCURRENT
+-- POSTs to the same check-in both saw no reply, both spent Haiku AND Sonnet, and both
+-- inserted. Nothing in the schema stopped them: `coach_messages` had only a primary key and
+-- a `(user_id, created_at)` index.
+--
+-- Caught by `project-reviewer` on PR #47. Real cost, not theoretical: the endpoint has no
+-- rate limit (caps are #26), so a double-click on "Try again", two open tabs, or a client
+-- retry storm multiplies Sonnet spend against prepaid credits with auto-recharge OFF.
+--
+-- PARTIAL, and both halves of the predicate are load-bearing:
+--   `where check_in_id is not null` — `check_in_id` is nullable BY DESIGN (`on delete set
+--     null`, so chat outlives a deleted check-in, AC row 31). Without this predicate the
+--     index would be unique over NULLs... which Postgres permits any number of, so it would
+--     not actually break — but it would index rows the constraint has no opinion about, and
+--     say something we do not mean.
+--   `where role = 'assistant'` — `role` still allows 'user' for the free-form chat in a
+--     later issue (AC row 29 says we write no 'user' rows TODAY). Constraining all roles
+--     would silently cap that future feature at one message per check-in.
+--
+-- Safe to apply: the app has never written to this table in production — the feature ships
+-- with this PR — so there are no existing duplicates for the index build to trip over.
+create unique index coach_messages_one_assistant_reply_per_check_in
+  on public.coach_messages (check_in_id)
+  where role = 'assistant' and check_in_id is not null;
+
+-- =====================================================================================
+-- 2. DELETE for `authenticated` — so a wrong reply is recoverable
+-- =====================================================================================
+--
+-- ⚠️ THIS AMENDS AC ROW 32, which granted `select, insert` only and withheld `delete` on the
+-- reasoning that a reply is never edited. That reasoning was about the CHECK-IN being
+-- deleted (`on delete set null`), and it did not consider the case `project-reviewer` found:
+-- the gate is a model, so it will eventually mislabel a real training check-in as
+-- `off_topic`. Row 2's get-or-create then returns that constant for that check-in FOREVER —
+-- no re-classify path, no UI action, and the only workaround was deleting the check-in and
+-- re-typing it, which strands the wrong reply as an orphan.
+--
+-- Toby approved this amendment explicitly, and chose the narrow shape (2026-08-02).
+--
+-- WHY `delete` AND NOT `update`: an update would let a reply's text change under a user who
+-- has already read it, with no trace that it ever said something else. Delete-then-insert
+-- goes through the same guarded write path as an original reply, so a replacement is
+-- created by the same code, with the same ownership proof, and gets its own `created_at`.
+-- `update` stays revoked.
+--
+-- ⚠️ THE GRANT IS NOT THE SAFETY BOUNDARY — the SERVICE is, and this is the important part.
+-- Postgres cannot express "only delete a reply whose content is exactly OFF_TOPIC_REPLY",
+-- so `app/services/coach.py::retract_off_topic_reply` enforces it: a CRISIS_REPLY and a
+-- real coach reply are both refused. That distinction is deliberate and it is a safety
+-- property, not a nicety — if any reply were retractable, a person in genuine crisis could
+-- re-roll past the hotlines until the gate handed them coaching instead. Nobody gets to
+-- re-roll away from CRISIS_REPLY.
+--
+-- RLS still fences the rows: the owner-only policy means `authenticated` can only delete
+-- rows where `auth.uid() = user_id`, and `db/coach.py` filters on `user_id` in the same
+-- statement as the first lock regardless.
+grant delete on public.coach_messages to authenticated;

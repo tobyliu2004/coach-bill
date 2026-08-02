@@ -24,6 +24,7 @@ is already safe on disk — so "try again" is a real option rather than a hope. 
 broken reply would be permanently wrong, because step 2 would hand it back forever.
 """
 
+import asyncio
 import logging
 from decimal import Decimal, localcontext
 from typing import NamedTuple
@@ -56,6 +57,13 @@ CONTEXT_DAYS = 14
 # Bill responds to check-ins and is not a general chat interface, and a growing transcript
 # is how this turns into one by accident (AC row 27).
 RECENT_REPLIES = 3
+
+# One wall-clock bound for the whole generation (gate + coach + their SDK retries). AC row
+# 36 asks that "the endpoint fails within a bounded wall-clock time"; the per-client
+# timeouts alone summed to ~120s, which is bounded but not usefully so. 60s is comfortably
+# above the p99 real request (~3-6s) and low enough that a user is not left staring at
+# "Bill is reading your check-in…" while a vendor incident plays out.
+REPLY_DEADLINE_SECONDS = 60.0
 
 
 class CoachUnavailable(Exception):
@@ -242,35 +250,97 @@ async def reply_to_check_in(
 
     raw_text: str = check_in["raw_text"]
 
-    # 3. THE GATE. Any failure is fatal to the request — we do not know what this message
-    #    is, and guessing is what the gate exists to prevent (AC row 13).
+    # 3-5 run under ONE wall-clock deadline for the whole generation.
+    #
+    # Each client already carries its own timeout (15s gate, 25s coach), but AC row 36's
+    # approved note — "25s client timeout, the SDK retries twice, so worst case ≈3x" — only
+    # accounted for the coach. The two calls are SEQUENTIAL and retry independently, so the
+    # real worst case was 3x15 + 3x25 ≈ 120 SECONDS, and `test_row36_real_clients_have_a_
+    # bounded_timeout` asserts each client separately and structurally cannot see the sum.
+    # Caught by `project-reviewer` on PR #47.
+    #
+    # This is the bound the row actually asks for ("the endpoint fails within a bounded
+    # wall-clock time, nothing stored"), enforced in one place instead of inferred from two.
+    # A `TimeoutError` here lands in the same `CoachUnavailable` -> 503 -> nothing-stored
+    # path as any other failure, so a slow vendor costs a retry and never a partial write.
     try:
-        intent = await gate.classify(raw_text)
-    except Exception as exc:
-        logger.exception("intent gate failed for check_in_id=%s", check_in_id)
-        raise CoachUnavailable("the intent gate is unavailable") from exc
+        async with asyncio.timeout(REPLY_DEADLINE_SECONDS):
+            # 3. THE GATE. Any failure is fatal to the request — we do not know what this
+            #    message is, and guessing is what the gate exists to prevent (AC row 13).
+            try:
+                intent = await gate.classify(raw_text)
+            except Exception as exc:
+                logger.exception("intent gate failed for check_in_id=%s", check_in_id)
+                raise CoachUnavailable("the intent gate is unavailable") from exc
 
-    # 4/5. ROUTE. The two fixed replies never touch Sonnet — that is both the cost control
-    #      and, for `crisis`, the safety control (AC rows 10/15/16).
-    if intent.label == "crisis":
-        content = CRISIS_REPLY
-    elif intent.label == "off_topic":
-        content = OFF_TOPIC_REPLY
-    elif intent.label == "coach":
-        content = await _coach_reply(pool, user_id, raw_text, coach)
-    else:
-        # Untrusted output that didn't validate is a failure, NEVER a default (AC row 14).
-        # Defaulting to `coach` would send an unclassified crisis to Sonnet; defaulting to
-        # `off_topic` would silently drop one. Neither is an acceptable way to be wrong.
-        logger.error("intent gate returned an unknown label %r", intent.label)
-        raise CoachUnavailable(f"unknown intent label: {intent.label!r}")
+            # 4/5. ROUTE. The two fixed replies never touch Sonnet — that is both the cost
+            #      control and, for `crisis`, the safety control (AC rows 10/15/16).
+            if intent.label == "crisis":
+                content = CRISIS_REPLY
+            elif intent.label == "off_topic":
+                content = OFF_TOPIC_REPLY
+            elif intent.label == "coach":
+                content = await _coach_reply(pool, user_id, raw_text, coach)
+            else:
+                # Untrusted output that didn't validate is a failure, NEVER a default (AC
+                # row 14). Defaulting to `coach` would send an unclassified crisis to
+                # Sonnet; defaulting to `off_topic` would silently drop one. Neither is an
+                # acceptable way to be wrong.
+                logger.error("intent gate returned an unknown label %r", intent.label)
+                raise CoachUnavailable(f"unknown intent label: {intent.label!r}")
+    except TimeoutError as exc:
+        logger.warning(
+            "the reply deadline of %ss elapsed for check_in_id=%s",
+            REPLY_DEADLINE_SECONDS,
+            check_in_id,
+        )
+        raise CoachUnavailable("the coach did not answer in time") from exc
 
     # 6. STORE, proving the parent inside the write. The check-in can have been deleted
     #    since step 1 — the guard, not that read, is what makes this safe (AC row 7).
     row = await coach_db.insert_reply(pool, user_id, check_in_id, content)
-    if row is None:
-        return None
-    return ReplyResult(_reply_out(row), created=True)
+    if row is not None:
+        return ReplyResult(_reply_out(row), created=True)
+
+    # Nothing came back, and that is AMBIGUOUS — two very different things look identical
+    # from the insert's side:
+    #   a) the `where exists` guard blocked it: the check-in is gone or was never theirs,
+    #      which is a 404 (AC row 7);
+    #   b) `on conflict do nothing` swallowed it: a CONCURRENT request won the race and its
+    #      reply is now the one that exists.
+    # Re-reading is what tells them apart. Without the partial unique index (b) was not a
+    # conflict at all — it was a second row and a second Sonnet bill, which is the finding
+    # this handles. Whoever loses the race returns the winner's reply with created=False,
+    # so both callers see the same reply and only one of them is told it created it.
+    raced = await coach_db.get_reply_for_check_in(pool, user_id, check_in_id)
+    if raced is not None:
+        return ReplyResult(_reply_out(raced), created=False)
+    return None
+
+
+async def retract_off_topic_reply(pool: asyncpg.Pool, user_id: UUID, check_in_id: UUID) -> bool:
+    """Drop a stored `off_topic` reply so the user can ask again. True iff one was removed.
+
+    The gate is a model, so it will eventually mislabel a real training check-in as
+    off-topic — and AC row 2's get-or-create then hands that constant back forever. Before
+    this existed the only escape was deleting the check-in and retyping it, which stranded
+    the wrong reply as an orphan. (Found by `project-reviewer` on PR #47; the `delete` grant
+    it needs is an approved amendment to AC row 32.)
+
+    ⚠️ OFF-TOPIC ONLY, AND THAT IS A SAFETY PROPERTY. `OFF_TOPIC_REPLY` is passed as the
+    content to match, so a `CRISIS_REPLY` matches nothing and cannot be retracted by any
+    request this endpoint can make. If every reply were retractable, someone in genuine
+    crisis could ask again and again until the gate handed them coaching instead of the
+    hotlines — the app would be re-rolling away from its own safety response. A real coach
+    reply is equally non-retractable, for a duller reason: "I didn't like that answer" is a
+    request to spend money again, and that belongs behind the caps in #26, not here.
+
+    Enforced in the STATEMENT, not by reading first and then deleting — a check-then-act
+    would leave a window where the content changed in between. SQL grants cannot express
+    "only this exact string", which is why the boundary lives in code and the migration
+    comment says so.
+    """
+    return await coach_db.delete_reply_with_content(pool, user_id, check_in_id, OFF_TOPIC_REPLY)
 
 
 async def _coach_reply(pool: asyncpg.Pool, user_id: UUID, raw_text: str, coach: Coach) -> str:

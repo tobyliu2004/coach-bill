@@ -12,6 +12,41 @@
  */
 import type { CheckIn } from './api'
 
+/**
+ * A byte-for-byte mirror of `OFF_TOPIC_REPLY` in backend/app/ai/coach.py.
+ *
+ * Duplicated, which normally would not be acceptable — but the alternative was worse. The
+ * screen needs to know whether a stored reply is the off-topic constant (only those can be
+ * retracted and re-asked; a crisis reply never can, by design). Putting a `retractable`
+ * flag on the wire was the obvious move and is not available: AC row 1 pins the response
+ * body to EXACTLY `{id, content, created_at}`, and the oracle asserts that set.
+ *
+ * The drift risk is handled by a test rather than by hope:
+ * `backend/tests/test_coach_copy_parity.py` reads THIS file and fails if the two strings
+ * stop matching. So editing the backend constant without editing this one turns the suite
+ * red — which is the property that makes a duplicated string safe to live with.
+ */
+export const OFF_TOPIC_REPLY = `I only read training, food, sleep and bodyweight check-ins — that one's outside my lane.
+
+Try something like "bench 135 4×8, slept 6h, knee felt tweaky" and I'll have something useful to say.`
+
+/**
+ * Can the user ask Bill again about this reply?
+ *
+ * ONLY for the off-topic constant, and that is a safety rule rather than a product one. If
+ * any reply could be re-asked, someone in genuine crisis could re-roll past the hotlines
+ * until the gate handed them coaching instead — the app would be helping them get away from
+ * its own safety response. A real coach reply is excluded too, more prosaically: "give me a
+ * different answer" is a request to spend money again, which belongs behind #26's caps.
+ *
+ * The server enforces this independently (`services/coach.py::retract_off_topic_reply`
+ * matches on content in the same statement as the delete). This function only decides
+ * whether to SHOW the affordance — a client that called the endpoint anyway would get a 404.
+ */
+export function isRetractable(content: string): boolean {
+  return content === OFF_TOPIC_REPLY
+}
+
 /** Which block belongs under one check-in, where Bill's reply goes. */
 export type ReplyView =
   /** No reply, none asked for. Renders NOTHING — not an empty box, not a placeholder.

@@ -260,7 +260,29 @@ export function createApi({
      * and the caller doesn't branch on which happened.
      */
     requestReply(checkInId: string): Promise<CoachReply> {
-      return request<CoachReply>(`/check-ins/${checkInId}/reply`, { method: 'POST' })
+      return request<CoachReply>(`/check-ins/${checkInId}/reply`, {
+        method: 'POST',
+        // A HARD CLIENT-SIDE BOUND, independent of the server's own.
+        //
+        // The server caps generation at 60s (REPLY_DEADLINE_SECONDS), so this only fires if
+        // something upstream of that stalls — a hung connection, a proxy holding the socket.
+        // Without it a bare `fetch` waits forever and the user sits watching "Bill is
+        // reading your check-in…" with no way out. 70s is deliberately just above the
+        // server's bound, so in every normal failure the server's 503 wins the race and the
+        // user gets the real error rather than a generic abort.
+        signal: AbortSignal.timeout(70_000),
+      })
+    },
+    /**
+     * Retract an off-topic reply so Bill can be asked again.
+     *
+     * 404 for anything that is not a retractable off-topic reply — including a crisis reply
+     * and a real coaching reply, both of which the server refuses on purpose. The screen
+     * only offers this where `isRetractable` says so, but the server is the one enforcing
+     * it; this call is not the boundary.
+     */
+    retractReply(checkInId: string): Promise<void> {
+      return request<void>(`/check-ins/${checkInId}/reply`, { method: 'DELETE' })
     },
     deleteCheckIn(id: string): Promise<void> {
       return request<void>(`/check-ins/${id}`, { method: 'DELETE' })

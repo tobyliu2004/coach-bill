@@ -1,5 +1,5 @@
 import type { CheckIn } from '../lib/api'
-import { replyView } from '../lib/coachView'
+import { isRetractable, replyView } from '../lib/coachView'
 
 /**
  * Coach Bill's reply under a check-in — the thing the app is named after.
@@ -22,12 +22,41 @@ import { replyView } from '../lib/coachView'
  * data. This is writing, and setting it in mono would make a coach's sentences read like a
  * terminal dump. Same treatment as the landing page's `CheckInChapter`.
  */
+
+/** One quiet inline action. Shared so "Try again", "Ask Bill" and "Ask again" cannot drift
+ *  apart visually — they are the same affordance in three different states. */
+function ReplyAction({
+  onClick,
+  disabled = false,
+  children,
+}: {
+  onClick: () => void
+  /** True while a request for this check-in is already in flight. DISABLING THIS IS A COST
+   *  CONTROL, not a polish detail: every click reaches the model, and only the first one's
+   *  reply gets stored (the rest lose the unique-index race), so a double-click is a
+   *  double bill for one visible answer. */
+  disabled?: boolean
+  children: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="rounded-control font-mono text-xs text-fg underline underline-offset-4 transition-colors duration-150 hover:text-accent focus:text-accent focus:outline-none disabled:no-underline disabled:opacity-50"
+    >
+      {children}
+    </button>
+  )
+}
+
 export function CoachReply({
   checkIn,
   requesting,
   failed,
   live,
-  onRetry,
+  onRequest,
+  onRetract,
 }: {
   checkIn: CheckIn
   /** A reply request is in flight for THIS check-in. */
@@ -35,13 +64,34 @@ export function CoachReply({
   /** The last request for THIS check-in failed. */
   failed: boolean
   /** True on the Today screen, false on History. Drives whether a screen reader is
-   *  interrupted — 30 history cards must not fire 30 announcements (#41). */
+   *  interrupted — 30 history cards must not fire 30 announcements (#41) — and whether the
+   *  ask/retry affordances appear at all. History is read-only. */
   live: boolean
-  onRetry: () => void
+  /** Ask Bill to reply to this check-in. Used by both `failed` and `none`. */
+  onRequest: () => void
+  /** Throw away an off-topic reply and ask again. Only reachable when `isRetractable`. */
+  onRetract: () => void
 }) {
   const view = replyView({ reply: checkIn.reply, requesting, failed, live })
 
-  if (view.kind === 'none') return null
+  if (view.kind === 'none') {
+    // Read-only screens render nothing here, which is AC row 40.
+    if (!live) return null
+    // On Today, "no reply" needs a way OUT of that state. Before this existed, a reply that
+    // failed and was then reloaded past became unreachable forever: `failed` lives in
+    // component state, so after a refresh this is `none` and the retry button was gone —
+    // the #18-retro bug class re-appearing one boundary over, across a reload rather than
+    // within a render. It also covers every check-in logged before this feature shipped.
+    // Deliberately NOT auto-requested on mount: that would spend a Sonnet call on every
+    // page load for every replyless check-in.
+    return (
+      <p className="mt-3 border-t border-edge pt-3 font-mono text-xs text-fg-muted">
+        <ReplyAction onClick={onRequest} disabled={requesting}>
+          Ask Bill
+        </ReplyAction>
+      </p>
+    )
+  }
 
   if (view.kind === 'thinking') {
     // Not a spinner: a sentence that says what is happening. The wait is long enough that
@@ -69,13 +119,9 @@ export function CoachReply({
         {/* A retry affordance, not just a message. The failure is transient by
             construction — the server stored nothing — so "try again" is a real action and
             the user should not have to reload the page to take it. */}
-        <button
-          type="button"
-          onClick={onRetry}
-          className="rounded-control font-mono text-xs text-fg underline underline-offset-4 transition-colors duration-150 hover:text-accent focus:text-accent focus:outline-none"
-        >
+        <ReplyAction onClick={onRequest} disabled={requesting}>
           Try again
-        </button>
+        </ReplyAction>
       </div>
     )
   }
@@ -95,6 +141,21 @@ export function CoachReply({
             and `break-words` stops a long unbroken string from widening the card. */}
         <span className="font-sans whitespace-pre-wrap break-words">{view.content}</span>
       </p>
+      {/* ONLY for the off-topic constant, and only on the live screen. The gate is a model
+          and will sometimes call a real training check-in off-topic; without this, that
+          verdict is permanent because the endpoint is get-or-create.
+
+          A crisis reply is never retractable — `isRetractable` says so and the server
+          enforces it independently. If it were, someone in genuine crisis could ask again
+          until the gate handed them coaching instead of the hotlines. */}
+      {live && isRetractable(view.content) && (
+        <p className="mt-2 font-mono text-xs text-fg-muted">
+          Actually about your training?{' '}
+          <ReplyAction onClick={onRetract} disabled={requesting}>
+            Ask again
+          </ReplyAction>
+        </p>
+      )}
     </div>
   )
 }

@@ -89,6 +89,15 @@ async def insert_reply(
 
     `user_id` is bound from `UserIdDep` and `role` is the server-stamped literal
     'assistant'; neither is ever taken from a payload (backend rule 3).
+
+    `on conflict do nothing` covers the race the guard cannot: two CONCURRENT requests both
+    read "no reply yet" and both reach this insert. The partial unique index added in
+    20260802170638 makes the loser's write a no-op instead of a duplicate row — but note
+    that RETURNING then yields nothing for BOTH the blocked-guard case and the lost-race
+    case, which look identical from here. Disambiguating them is the caller's job (see
+    `services/coach.py`, which re-reads): a blocked guard is a 404, a lost race is the
+    winner's reply. No conflict target is named on purpose — `do nothing` catches any unique
+    violation, so this keeps working if the index's predicate is ever narrowed.
     """
     async with authed_conn(pool, user_id) as conn:
         row: asyncpg.Record | None = await conn.fetchrow(
@@ -96,12 +105,44 @@ async def insert_reply(
             "select $1, $2, 'assistant', $3 "
             " where exists "
             "       (select 1 from public.check_ins where id = $2 and user_id = $1) "
+            "on conflict do nothing "
             f"returning {_COLUMNS}",
             user_id,
             check_in_id,
             content,
         )
         return row
+
+
+async def delete_reply_with_content(
+    pool: asyncpg.Pool, user_id: UUID, check_in_id: UUID, content: str
+) -> bool:
+    """Delete the caller's reply to one check-in **only if it still says `content`**.
+
+    True iff a row was actually deleted.
+
+    THE CONTENT MATCH IS THE SAFETY BOUNDARY, not a convenience. The caller passes
+    `OFF_TOPIC_REPLY`, so a `CRISIS_REPLY` and a real coaching reply both match nothing and
+    survive. That is what stops someone re-rolling past the crisis resources until the gate
+    hands them coaching instead — see the migration comment. Doing it in the same statement
+    rather than as a read-then-delete also closes the window where a reply could change
+    between the check and the delete.
+
+    `id` is never named here: the row is identified by (owner, parent, exact content), so
+    there is no client-supplied row id to forge in the first place. `user_id` is still
+    filtered in the same statement as the first lock (backend rule 2), and `role` pins this
+    to assistant rows so a future 'user' row can never be swept up by it.
+    """
+    async with authed_conn(pool, user_id) as conn:
+        deleted_id: UUID | None = await conn.fetchval(
+            "delete from public.coach_messages "
+            " where check_in_id = $2 and user_id = $1 and role = 'assistant' and content = $3 "
+            "returning id",
+            user_id,
+            check_in_id,
+            content,
+        )
+        return deleted_id is not None
 
 
 async def list_replies_for_check_ins(
