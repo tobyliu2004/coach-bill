@@ -87,6 +87,26 @@ ALL_VERBS = (
 # C3's verified end-state: EXACTLY the app verbs `authenticated` keeps, table by table.
 # Only the four data verbs appear here; truncate/references/trigger/maintain are asserted
 # False for every table separately (the "excess is gone" half of the same control).
+#
+# ⚠️ AMENDED ONCE, on purpose, and this is the audit trail for it.
+#
+# `coach_messages` read all-False here from #37 until issue #21, because nothing wrote to
+# the table and least privilege means a table the app does not use holds nothing. #21 is
+# the feature that uses it, so the row changed to `select` + `insert` — the two verbs the
+# coach path actually issues (see 20260802123956_coach_messages_grants.sql).
+#
+# This edit is legitimate ONLY because it was approved BEFORE the code existed, as row 32
+# of #21's correctness table, marked 🔓 precisely because it amends a frozen oracle:
+# https://github.com/tobyliu2004/coach-bill/issues/21#issuecomment-5159387641
+# The rule that makes an oracle worth anything is that you do not edit it to make code
+# pass. Changing an approved expectation, in the open, against a row Toby signed off in
+# advance, is the sanctioned path — quietly relaxing an assertion because a new feature
+# tripped it is the thing that path exists to prevent.
+#
+# `update` and `delete` stay False, and that is the load-bearing half of the amendment: a
+# reply is never edited, and `check_in_id is on delete set null` means chat outlives a
+# deleted check-in (#21 AC rows 29/31). If a future change needs either verb, it needs a
+# new approved row — not a second quiet edit to this dict.
 C3_APP_VERBS: dict[str, dict[str, bool]] = {
     "check_ins": {"select": True, "insert": True, "update": False, "delete": True},
     "profiles": {"select": True, "insert": False, "update": True, "delete": False},
@@ -95,7 +115,8 @@ C3_APP_VERBS: dict[str, dict[str, bool]] = {
     "nutrition_entries": {"select": True, "insert": True, "update": False, "delete": True},
     "sleep_entries": {"select": True, "insert": True, "update": False, "delete": True},
     "bodyweight_entries": {"select": True, "insert": True, "update": False, "delete": True},
-    "coach_messages": {"select": False, "insert": False, "update": False, "delete": False},
+    # #21 AC row 32 (🔓 amends this frozen oracle — see the block above).
+    "coach_messages": {"select": True, "insert": True, "update": False, "delete": False},
 }
 
 
