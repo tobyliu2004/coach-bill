@@ -257,10 +257,11 @@ async def test_get_returns_todays_check_ins_in_order(client: AsyncClient) -> Non
     )
     # responses: [timezone read, list rows already ordered newest-first by the db, then the
     # four bundled fact reads added by issue #19 (workout_sets, nutrition_entries,
-    # sleep_entries, bodyweight_entries) — empty here; this test is about ORDER, and the
-    # facts themselves are #19's oracle to assert. They pop AFTER calls[1], so every
+    # sleep_entries, bodyweight_entries), then the bundled reply read added by issue #21
+    # (coach_messages, AC row 30) — all empty here; this test is about ORDER, and the facts
+    # and replies are #19's and #21's oracles to assert. They pop AFTER calls[1], so every
     # assertion below is untouched.
-    pool = _sign_in(["UTC", [newest, older], [], [], [], []])
+    pool = _sign_in(["UTC", [newest, older], [], [], [], [], []])
 
     resp = await client.get("/check-ins")
 

@@ -11,6 +11,7 @@ import asyncpg
 
 from app.ai.extractor import Extractor
 from app.db import check_ins as check_ins_db
+from app.db import coach as coach_db
 from app.db import facts as facts_db
 from app.db.profiles import get_user_timezone
 from app.schemas.check_ins import (
@@ -22,6 +23,7 @@ from app.schemas.check_ins import (
     SleepEntryOut,
     WorkoutSetOut,
 )
+from app.schemas.coach import CoachReplyOut
 from app.services.extraction import extract_and_store, failed_status
 from app.time import local_today
 
@@ -92,12 +94,45 @@ async def list_check_ins(pool: asyncpg.Pool, user_id: UUID, days: int = 1) -> li
     if not rows:
         return []
 
+    check_in_ids = [r["id"] for r in rows]
     # One batched fact read for the whole list, not one per check-in...
-    by_table = await facts_db.list_facts_for_check_ins(pool, user_id, [r["id"] for r in rows])
+    by_table = await facts_db.list_facts_for_check_ins(pool, user_id, check_in_ids)
+    # ...and one batched reply read alongside it, for the same reason (AC row 30). Two
+    # queries total regardless of how many days the window covers; a per-check-in reply
+    # lookup would be an N+1 that grows with the user's history.
+    replies = await _replies_by_check_in(pool, user_id, check_in_ids)
     # ...and one pass to index it. Filtering the full result list once per check-in would
     # reintroduce, in memory, the same N+1 shape the batched read exists to avoid.
     grouped = _group_by_check_in(by_table)
-    return [CheckInOut(**dict(row), facts=_facts_for(grouped, row["id"])) for row in rows]
+    return [
+        CheckInOut(
+            **dict(row),
+            facts=_facts_for(grouped, row["id"]),
+            reply=replies.get(row["id"]),
+        )
+        for row in rows
+    ]
+
+
+async def _replies_by_check_in(
+    pool: asyncpg.Pool, user_id: UUID, check_in_ids: list[UUID]
+) -> dict[UUID, CoachReplyOut]:
+    """Index the batched reply read by check-in id.
+
+    `setdefault`, not assignment, so the OLDEST reply wins on the (schema-permitted, app-
+    prevented) chance that a check-in has more than one. That is not arbitrary: it matches
+    `db/coach.py::get_reply_for_check_in`, which the reply endpoint uses for its
+    get-or-create. If the two disagreed, `POST /check-ins/{id}/reply` and `GET /check-ins`
+    would hand back different replies for the same check-in and the screen would appear to
+    change its mind on refresh.
+    """
+    indexed: dict[UUID, CoachReplyOut] = {}
+    for row in await coach_db.list_replies_for_check_ins(pool, user_id, check_in_ids):
+        indexed.setdefault(
+            row["check_in_id"],
+            CoachReplyOut(id=row["id"], content=row["content"], created_at=row["created_at"]),
+        )
+    return indexed
 
 
 async def delete_check_in(pool: asyncpg.Pool, user_id: UUID, check_in_id: UUID) -> bool:

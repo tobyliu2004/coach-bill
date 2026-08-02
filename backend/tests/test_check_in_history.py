@@ -150,14 +150,20 @@ def _sign_in(responses: list[Any]) -> FakePool:
 
 
 def _list_responses(rows: list[dict[str, Any]]) -> list[Any]:
-    """Primed values for one GET: the timezone read, the range rows, then the fact reads.
+    """Primed values for one GET: the timezone read, the range rows, then the bundled reads.
 
     The tz value is the caller's; pass it via `_with_tz`. Four empty fact lists trail the
-    rows (workout_sets / nutrition / sleep / bodyweight, bundled since #19). They pop AFTER
-    calls[1], so every assertion on calls[0]/calls[1] below is unaffected by how many fact
-    queries the implementation ends up making.
+    rows (workout_sets / nutrition / sleep / bodyweight, bundled since #19), plus one empty
+    reply list (coach_messages, bundled since #21 — AC row 30). They pop AFTER calls[1], so
+    every assertion on calls[0]/calls[1] below is unaffected by how many bundled queries the
+    implementation ends up making.
+
+    Adding the fifth trailing list is priming, not a weakened assertion: this file's tests
+    assert on calls[0] (the timezone read) and calls[1] (the range query), and both are
+    untouched. It is the same extension #19 made when it added the four fact reads — the
+    docstring above was written to expect it.
     """
-    return [rows, [], [], [], []]
+    return [rows, [], [], [], [], []]
 
 
 def _with_tz(tz: str | None, rows: list[dict[str, Any]]) -> list[Any]:
