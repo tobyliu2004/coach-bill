@@ -13,7 +13,12 @@ dependencies = [
     # The extraction model (issue #19). Needs >=0.69 for messages.parse / output_format —
     # the structured-output helper that validates the model's JSON against our Pydantic
     # shapes, so app/ai/extractor.py never hand-parses untrusted output.
-    "anthropic>=0.69",
+    # Floor is the version that introduced `output_config` and `anthropic.types.OutputConfigParam`
+    # (app/ai/coach.py). The previous `>=0.69` was already understating it — `messages.parse`
+    # + `output_format` in app/ai/extractor.py postdates 0.69 too — so a fresh resolve could
+    # pick a version the code cannot run on. uv.lock has always pinned a working one, which is
+    # why nothing broke; the declared constraint was simply false.
+    "anthropic>=0.116",
     # Vendored IANA tz database: zoneinfo must not depend on the OS image shipping one
     # (slim containers don't) — timezone validation would 422 for every valid zone.
     "tzdata>=2025.1",

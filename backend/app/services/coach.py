@@ -25,7 +25,7 @@ broken reply would be permanently wrong, because step 2 would hand it back forev
 """
 
 import logging
-from decimal import Decimal
+from decimal import Decimal, localcontext
 from typing import NamedTuple
 from uuid import UUID
 
@@ -157,7 +157,14 @@ def _trends_section(trends: TrendsOut) -> str:
             )
 
     for summary in trends.exercises:
-        heaviest = f", heaviest {_num(summary.heaviest_kg)} kg" if summary.heaviest_kg else ""
+        # `is not None`, NOT truthiness. `heaviest_kg` is `Decimal | None`, and a logged set
+        # at weight 0 (the CHECK is `>= 0`) is falsy — so `if summary.heaviest_kg` would
+        # silently drop the clause and turn "heaviest was 0" into "no heaviest at all".
+        # That is the exact null-vs-zero collapse PR #45 shipped as "peak 0 lb"; the sibling
+        # checks above and below both get it right and this one has no reason to differ.
+        heaviest = (
+            f", heaviest {_num(summary.heaviest_kg)} kg" if summary.heaviest_kg is not None else ""
+        )
         lines.append(f"- {summary.name}: {summary.sets} sets, {summary.reps} reps{heaviest}")
 
     for night in trends.sleep:
@@ -180,11 +187,37 @@ def _trends_section(trends: TrendsOut) -> str:
 
 def _num(value: Decimal) -> str:
     """A Decimal as the shortest exact string. `normalize` drops trailing zeros so 135.00
-    reads as 135, and the quantize guards `normalize`'s scientific notation on integers
-    (Decimal('100').normalize() is '1E+2', which is not a weight anyone recognises)."""
-    normalized = value.normalize()
-    if normalized == normalized.to_integral_value():
-        return str(normalized.quantize(Decimal(1)))
+    reads as 135.
+
+    The expansion below undoes `normalize`'s scientific notation on integers
+    (`Decimal('100').normalize()` is `Decimal('1E+2')`, which is not a weight anyone
+    recognises). It is done by hand rather than with `quantize(Decimal(1))`, which was the
+    obvious version and was WRONG: quantize raises `InvalidOperation` as soon as the result
+    needs more digits than the decimal context's precision (28). That is reachable — the
+    schema is `weight_kg numeric check (weight_kg >= 0)` with NO upper bound, so a user who
+    logs an absurd load produces a `sum(reps * weight_kg)` big enough to trip it, and the
+    exception escapes `CoachUnavailable` as an uncaught 500 rather than a 503. Their reply
+    endpoint would then break on every request until they deleted the check-in.
+
+    `normalize()` is ALSO widened, and that one is subtler: it rounds to the context's
+    precision too, so a 40-digit total came back as `1E+40` — silently wrong rather than
+    loudly broken, which is worse. The local context is sized to the value's own digit count
+    before normalizing. (Found by the regression test for the quantize bug, which failed
+    against the first attempt at this fix.)
+
+    Postgres `numeric` also permits NaN, which has no meaningful digit count or exponent —
+    hence the finite check first.
+    """
+    if not value.is_finite():
+        return str(value)
+
+    with localcontext() as ctx:
+        ctx.prec = max(len(value.as_tuple().digits), 1)
+        normalized = value.normalize()
+
+    sign, digits, exponent = normalized.as_tuple()
+    if isinstance(exponent, int) and exponent > 0:
+        return f"{'-' if sign else ''}{''.join(map(str, digits))}{'0' * exponent}"
     return str(normalized)
 
 
@@ -270,9 +303,20 @@ async def _context_for(pool: asyncpg.Pool, user_id: UUID) -> str:
     check_ins = await list_check_ins(pool, user_id, CONTEXT_DAYS)
 
     # Bill's recent replies come from the check-ins we ALREADY read rather than a fourth
-    # query: `list_check_ins` bundles them (AC row 30) and returns newest-day-first, so the
-    # first few replies in that list are the most recent ones he wrote (AC row 27).
-    recent = [c.reply.content for c in check_ins if c.reply is not None][:RECENT_REPLIES]
+    # query: `list_check_ins` bundles them (AC row 30).
+    #
+    # Sorted by the REPLY's own timestamp, not by the check-in's. The two usually agree, and
+    # taking the list's existing newest-day-first order would be simpler — but they come
+    # apart the moment someone answers an older check-in after a newer one (a retry the next
+    # morning, say), and then "your last few replies" would quietly mean "replies to your
+    # last few check-ins". Row 27 exists to stop Bill repeating himself, which is about what
+    # he last SAID, not about which day he said it about.
+    replies = sorted(
+        (c.reply for c in check_ins if c.reply is not None),
+        key=lambda reply: reply.created_at,
+        reverse=True,
+    )
+    recent = [reply.content for reply in replies[:RECENT_REPLIES]]
 
     return build_context(
         goal=profile["goal"] if profile is not None else None,

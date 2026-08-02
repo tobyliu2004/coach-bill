@@ -16,7 +16,7 @@ from functools import lru_cache
 from typing import Annotated, Protocol
 
 from anthropic import AsyncAnthropic
-from anthropic.types import OutputConfigParam, ThinkingConfigDisabledParam
+from anthropic.types import Message, OutputConfigParam, ThinkingConfigDisabledParam
 from fastapi import Depends
 
 from app.config import get_settings
@@ -210,7 +210,7 @@ class SonnetCoach:
         return _text_of(response)
 
 
-def _text_of(response: object) -> str:
+def _text_of(response: Message) -> str:
     """The reply text, or raise. The validation seam `messages.parse` gives us for free.
 
     Two failures, both of which must be errors rather than a stored string:
@@ -220,20 +220,27 @@ def _text_of(response: object) -> str:
       forever. Better a 503 they can retry than a permanent half-sentence.
     * **empty** (AC row 35). Same doctrine as extractor.py: untrusted output that produced
       nothing is a failure, never an empty success.
+
+    TYPED AS `Message`, NOT `object`. The first version took `object` and reached for
+    `getattr(response, "stop_reason", None)`, which type-checks clean precisely because
+    mypy cannot verify a single one of those attribute names. That is worse than an
+    explicit `Any` here, because the oracle DELIBERATELY leaves row 34's detection half
+    uncovered (a truncated reply is just a string at the `Coach` seam, so no test reaches
+    this branch) — types were the only remaining guard, and `object` switched them off. A
+    rename or a typo would have made the truncation check a silent no-op, and a half-
+    sentence would be stored permanently with no `update` grant to repair it. Narrowing on
+    `block.type == "text"` gives `block.text` for free from the discriminated union, the
+    same way extractor.py reads typed attributes.
     """
-    stop_reason = getattr(response, "stop_reason", None)
-    if stop_reason == "max_tokens":
+    if response.stop_reason == "max_tokens":
         raise ValueError(
             "the coach's reply hit max_tokens and was truncated mid-sentence; refusing to "
             "store a partial reply (AC row 34)"
         )
 
-    blocks = getattr(response, "content", None) or []
-    text = "".join(
-        getattr(block, "text", "") for block in blocks if getattr(block, "type", None) == "text"
-    ).strip()
+    text = "".join(block.text for block in response.content if block.type == "text").strip()
     if not text:
-        raise ValueError(f"the coach returned no usable text (stop: {stop_reason})")
+        raise ValueError(f"the coach returned no usable text (stop: {response.stop_reason})")
     return text
 
 
