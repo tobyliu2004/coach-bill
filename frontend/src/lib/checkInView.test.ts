@@ -30,6 +30,10 @@ function checkIn(overrides: Partial<CheckIn> = {}): CheckIn {
     created_at: '2026-07-16T12:00:00Z',
     extraction_status: 'done',
     facts: NO_FACTS,
+    // #21 bundled Bill's reply onto every check-in. `null` is the honest default for
+    // these fixtures: they are about facts and list states, not replies. Adding the field
+    // is fixture maintenance — no assertion in this file reads it.
+    reply: null,
     ...overrides,
   }
 }

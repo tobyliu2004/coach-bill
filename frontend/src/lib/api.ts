@@ -73,6 +73,15 @@ export interface CheckInFacts {
   bodyweight: BodyweightEntry[]
 }
 
+/** Mirrors backend/app/schemas/coach.py CoachReplyOut — keep them in sync. */
+export interface CoachReply {
+  id: string
+  /** Bill's reply, as stored. PLAIN TEXT — render it as text, never as HTML. It is model
+   *  output, which is untrusted content going onto a page. */
+  content: string
+  created_at: string
+}
+
 /** Mirrors backend/app/schemas/check_ins.py CheckInOut — keep them in sync. */
 export interface CheckIn {
   id: string
@@ -88,6 +97,13 @@ export interface CheckIn {
    */
   extraction_status: 'pending' | 'done' | 'partial' | 'failed'
   facts: CheckInFacts
+  /**
+   * Coach Bill's reply, bundled by the server so a reply can't vanish on refresh.
+   *
+   * `null` means "no reply" — which is NOT "the reply failed". Keeping those two apart is
+   * `lib/coachView.ts`'s job, and collapsing them is the bug class the #18 retro named.
+   */
+  reply: CoachReply | null
 }
 
 /**
@@ -231,6 +247,20 @@ export function createApi({
      */
     getTrends(days: number): Promise<Trends> {
       return request<Trends>(`/trends?days=${days}`)
+    },
+    /**
+     * Ask Coach Bill to reply to one check-in.
+     *
+     * Takes no body: the text being replied to is the check-in already on the server, so
+     * there is nothing to send and nothing that could disagree with what was stored.
+     *
+     * Safe to call twice. The endpoint is get-or-create — 201 the first time, 200 with the
+     * same reply after — so a double-click or a remount costs one round trip rather than a
+     * second Sonnet call and a duplicate reply. Both are 2xx, so this resolves either way
+     * and the caller doesn't branch on which happened.
+     */
+    requestReply(checkInId: string): Promise<CoachReply> {
+      return request<CoachReply>(`/check-ins/${checkInId}/reply`, { method: 'POST' })
     },
     deleteCheckIn(id: string): Promise<void> {
       return request<void>(`/check-ins/${id}`, { method: 'DELETE' })

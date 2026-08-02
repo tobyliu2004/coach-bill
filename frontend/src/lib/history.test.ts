@@ -28,6 +28,9 @@ function checkIn(id: string, entry_date: string, created_at: string): CheckIn {
     created_at,
     extraction_status: 'done',
     facts: NO_FACTS,
+    // #21 bundled Bill's reply onto every check-in; these fixtures are about grouping and
+    // day labels, so `null` is the honest value. No assertion here reads it.
+    reply: null,
   }
 }
 

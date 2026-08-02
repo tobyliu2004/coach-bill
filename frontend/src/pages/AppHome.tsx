@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../auth/useAuth'
 import { AppShell } from '../components/AppShell'
+import { CoachReply } from '../components/CoachReply'
 import { Facts } from '../components/Facts'
 import { api } from '../lib/client'
 import type { CheckIn } from '../lib/api'
@@ -41,6 +42,11 @@ function AppHome() {
   const [loadFailed, setLoadFailed] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Reply state is PER CHECK-IN, not per screen: today can hold several check-ins, and one
+  // of them failing must not put every card into the error state. Sets of ids rather than a
+  // flag, so the states stay independent.
+  const [replyPending, setReplyPending] = useState<ReadonlySet<string>>(new Set())
+  const [replyFailed, setReplyFailed] = useState<ReadonlySet<string>>(new Set())
 
   // A rejected token means "signed out" — mirror AuthProvider and sign out rather than
   // stranding the user on a broken shell. Everything else is a transient in-app error.
@@ -68,6 +74,40 @@ function AppHome() {
     void refresh()
   }, [refresh])
 
+  /**
+   * Ask Bill to reply to one check-in, and fold the answer into that row.
+   *
+   * Separate from `submit` because it is separately retryable — the server stores nothing
+   * on a failure, so pressing "Try again" is a real action rather than a hope. The endpoint
+   * is get-or-create, so calling it twice is safe and cheap: the second call returns the
+   * stored reply without spending either model.
+   */
+  const requestReply = useCallback(
+    async (id: string) => {
+      setReplyPending((ids) => new Set(ids).add(id))
+      setReplyFailed((ids) => {
+        const next = new Set(ids)
+        next.delete(id)
+        return next
+      })
+      try {
+        const reply = await api.requestReply(id)
+        // Patch the one row rather than refetching the list: the reply is the only thing
+        // that changed, and a refetch would rebuild every card mid-read.
+        setCheckIns((rows) => rows.map((row) => (row.id === id ? { ...row, reply } : row)))
+      } catch (err) {
+        onError(err, () => setReplyFailed((ids) => new Set(ids).add(id)))
+      } finally {
+        setReplyPending((ids) => {
+          const next = new Set(ids)
+          next.delete(id)
+          return next
+        })
+      }
+    },
+    [onError],
+  )
+
   async function submit() {
     const body = text.trim()
     if (!body || busy) return
@@ -80,6 +120,10 @@ function AppHome() {
       const created = await api.createCheckIn(body)
       setText('')
       setCheckIns((rows) => [created, ...rows]) // newest first, matching the list's order
+      // Ask for the reply, but do NOT await it inside submit: the check-in is already
+      // saved and on screen, and Bill takes a few seconds. Blocking here would leave the
+      // compose box disabled the whole time and make a slow coach look like a slow save.
+      void requestReply(created.id)
     } catch (err) {
       onError(err, () => setError('That didn’t save — try again.'))
     } finally {
@@ -192,6 +236,16 @@ function AppHome() {
                     </button>
                   </div>
                   <Facts checkIn={checkIn} unit={unit} />
+                  {/* `live` — this is the screen the user just submitted on, so a reply
+                      arriving is worth interrupting a screen reader for. History passes
+                      false; same component, two contexts (#41). */}
+                  <CoachReply
+                    checkIn={checkIn}
+                    requesting={replyPending.has(checkIn.id)}
+                    failed={replyFailed.has(checkIn.id)}
+                    live
+                    onRetry={() => void requestReply(checkIn.id)}
+                  />
                 </li>
               ))}
             </ul>
