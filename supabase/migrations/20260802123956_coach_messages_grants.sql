@@ -1,0 +1,45 @@
+-- Issue #21 — table privileges for `coach_messages` (approved AC row 32).
+--
+-- `public.coach_messages` has existed since the init migration
+-- (20260629225832_init_schema.sql) with RLS on, an owner-only policy, and a
+-- (user_id, created_at) index — but it was never GRANTed to `authenticated`, because
+-- nothing wrote to it until now. Postgres guards a table with TWO independent gates: the
+-- coarse table-level GRANT (may this role touch the table at all?) and the per-row RLS
+-- policy (which rows?). A query needs BOTH. So the first write through `authed_conn` fails
+-- "permission denied for table coach_messages" — loudly and closed, which is the correct
+-- failure mode for a missing grant, and exactly why `schema.md` requires this file for
+-- every new user table.
+--
+-- LEAST PRIVILEGE — only the two verbs the app actually uses:
+--   select : the get-or-create read (AC row 2) and the batched read that bundles replies
+--            into GET /check-ins (AC row 30)
+--   insert : storing the one reply (AC row 1)
+--
+-- Deliberately NOT granted, and each omission is a decision rather than an oversight:
+--   update : a stored reply is never edited. Bill said what he said; rewriting history in
+--            place would make row 2's idempotency a lie and leave no trace.
+--   delete : `coach_messages.check_in_id` is `on delete set null` by design — the init
+--            migration's own comment is "chat outlives a deleted check-in" (AC row 31).
+--            The app therefore never needs to delete a message, and a deleted check-in
+--            must NOT take the conversation with it.
+--   truncate / references / trigger / maintain : stripped from every role by
+--            20260717213217_least_privilege_revoke_excess.sql, whose ALTER DEFAULT
+--            PRIVILEGES template also stops a new table silently reacquiring them (#37).
+--            Nothing here hands any of them back.
+--
+-- ⚠️ NOTE ON `on delete set null` AND THIS GRANT. Deleting a check-in makes Postgres write
+-- to `coach_messages` (setting `check_in_id` to NULL), which looks like it should need
+-- UPDATE. It does not: referential-integrity actions run as internal system triggers and
+-- bypass both the privilege check and row security. That is an invariant we assert rather
+-- than assume — `tests/test_coach_db.py::test_row31_deleting_a_check_in_keeps_the_reply_
+-- with_a_null_parent` executes exactly this against a real database as the non-BYPASSRLS
+-- role. If that test ever goes red with a permission error, this comment is what was wrong,
+-- and the fix is a correctness-table conversation about row 31 — not a reflexive
+-- `grant update`.
+--
+-- RLS is unchanged and still the row boundary: the owner-only policy already on the table
+-- confines `authenticated` to rows where `auth.uid() = user_id`. GRANT opens the table;
+-- RLS fences the rows; the explicit `where user_id = $N` in `db/coach.py` is the first lock
+-- and stays mandatory regardless (`backend.md`).
+
+grant select, insert on public.coach_messages to authenticated;

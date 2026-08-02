@@ -11,6 +11,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
+from app.schemas.coach import CoachReplyOut
+
 # Strip surrounding whitespace, reject empty, cap length — mirrors the `_Goal` constraint
 # in schemas/profiles.py. This is input hygiene, not fitness/safety validation (that's a
 # separate future issue).
@@ -109,3 +111,14 @@ class CheckInOut(BaseModel):
     # 'failed'  : extraction itself broke. The raw text is intact regardless.
     extraction_status: Literal["pending", "done", "partial", "failed"]
     facts: CheckInFacts = Field(default_factory=CheckInFacts)
+
+    # Coach Bill's reply, bundled for the same reason facts are: the list screen renders in
+    # one round trip and can never show a check-in without the reply that belongs to it.
+    # Without this a reply would vanish on refresh — you'd watch Bill answer, reload, and
+    # he'd be gone (AC row 30).
+    #
+    # `None` means "no reply", which is NOT the same as "the reply failed to load" — that
+    # distinction is the frontend's to keep (lib/coachView.ts), and collapsing the two is
+    # the bug class the #18 retro named. Defaulted, so every existing construction site of
+    # `CheckInOut` (POST /check-ins, the facts-only paths) keeps working unchanged.
+    reply: CoachReplyOut | None = None

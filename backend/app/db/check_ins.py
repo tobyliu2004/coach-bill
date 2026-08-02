@@ -63,6 +63,34 @@ async def list_check_ins_in_range(
         return rows
 
 
+async def get_check_in(
+    pool: asyncpg.Pool, user_id: UUID, check_in_id: UUID
+) -> asyncpg.Record | None:
+    """One of the caller's check-ins by id, or None if it isn't theirs (or doesn't exist).
+
+    Added for the coach endpoint (#21), which needs the raw text to reply to and needs to
+    answer "is this check-in yours?" BEFORE spending a model call — AC row 6: ownership is
+    checked before we spend money, so a stranger cannot bill us by guessing ids.
+
+    `id` AND `user_id` in the same statement, like every other targeted read here. The
+    caller cannot distinguish "no such check-in" from "not yours", which is the point
+    (backend rule 5): both are None, both become a 404, and neither confirms that someone
+    else's row exists.
+
+    Note what this is NOT: it is convenience, not the security boundary for the write that
+    follows it. A check-in can be deleted between this read and the insert, so the insert
+    carries its own `where exists (... and user_id = $1)` guard (db/coach.py). This read
+    exists to fail fast and cheaply, before the models.
+    """
+    async with authed_conn(pool, user_id) as conn:
+        row: asyncpg.Record | None = await conn.fetchrow(
+            f"select {_COLUMNS} from public.check_ins where id = $1 and user_id = $2",
+            check_in_id,
+            user_id,
+        )
+        return row
+
+
 async def set_extraction_status(
     pool: asyncpg.Pool, user_id: UUID, check_in_id: UUID, status: str
 ) -> None:

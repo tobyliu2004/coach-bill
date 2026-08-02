@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../auth/useAuth'
 import { AppShell } from '../components/AppShell'
+import { CoachReply } from '../components/CoachReply'
 import { Facts } from '../components/Facts'
 import type { CheckIn } from '../lib/api'
 import { errorAction } from '../lib/checkInView'
@@ -119,6 +120,23 @@ function History() {
                         </span>
                       </div>
                       <Facts checkIn={checkIn} unit={unit} />
+                      {/* Read-only here. History never REQUESTS a reply — it renders the
+                          ones already stored — so `requesting`/`failed` are both false and
+                          `replyView` can only return 'reply' or 'none'. `onRetry` is
+                          therefore unreachable; it stays required on the component so the
+                          Today screen cannot forget to pass one.
+
+                          `live={false}` is the load-bearing prop: thirty cards mount at
+                          once here, and announcing every one would be the barrage open as
+                          issue #41. */}
+                      <CoachReply
+                        checkIn={checkIn}
+                        requesting={false}
+                        failed={false}
+                        live={false}
+                        onRequest={() => {}}
+                        onRetract={() => {}}
+                      />
                     </li>
                   ))}
                 </ul>

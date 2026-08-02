@@ -99,11 +99,13 @@ const CHECK_IN: CheckIn = {
   source: 'text',
   entry_date: '2026-07-15',
   created_at: '2026-07-15T12:00:00Z',
-  // Added by issue #19: every CheckIn the API returns now carries these, so a fixture
-  // without them isn't a CheckIn. Fixture only — this file tests the HTTP wrapper (URL,
-  // method, headers, parsing), and no assertion below reads either field.
+  // Added by issue #19, then `reply` by issue #21: every CheckIn the API returns now
+  // carries all three, so a fixture without them isn't a CheckIn. Fixture only — this file
+  // tests the HTTP wrapper (URL, method, headers, parsing), and no assertion below reads
+  // any of them.
   extraction_status: 'done',
   facts: { sets: [], nutrition: [], sleep: [], bodyweight: [] },
+  reply: null,
 }
 
 describe('createCheckIn', () => {
