@@ -11,6 +11,7 @@ from app.db.pool import close_pool, create_pool
 from app.routes.check_ins import router as check_ins_router
 from app.routes.health import router as health_router
 from app.routes.profiles import router as profiles_router
+from app.routes.trends import router as trends_router
 
 settings = get_settings()
 
@@ -40,6 +41,7 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(profiles_router)
 app.include_router(check_ins_router)
+app.include_router(trends_router)
 
 
 @app.get("/")

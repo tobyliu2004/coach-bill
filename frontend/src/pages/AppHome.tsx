@@ -4,7 +4,7 @@ import { AppShell } from '../components/AppShell'
 import { Facts } from '../components/Facts'
 import { api } from '../lib/client'
 import type { CheckIn } from '../lib/api'
-import { errorAction, listView } from '../lib/checkInView'
+import { errorAction, listView, todayRequest } from '../lib/checkInView'
 import { formatTime } from '../lib/formatFacts'
 
 /**
@@ -30,6 +30,10 @@ function AppHome() {
   // The user's zone, not the browser's — the same source `entry_date` was stamped from, so
   // a logged time can never belong to a different day than the one it's filed under.
   const timezone = profile?.timezone ?? null
+  // THE #40 SEAM. This screen's window is the one that must stay exactly ONE day: widening
+  // it would be invisible on screen (today's rows still render first) while quietly
+  // multiplying this endpoint's payload for every user on every load. Now pinned by a test.
+  const { days: todayDays } = todayRequest(profile ?? null, new Date())
 
   const [text, setText] = useState('')
   const [checkIns, setCheckIns] = useState<CheckIn[]>([])
@@ -51,14 +55,14 @@ function AppHome() {
 
   const refresh = useCallback(async () => {
     try {
-      setCheckIns(await api.listCheckIns())
+      setCheckIns(await api.listCheckIns(todayDays))
       setLoadFailed(false)
     } catch (err) {
       onError(err, () => setLoadFailed(true))
     } finally {
       setLoading(false)
     }
-  }, [onError])
+  }, [onError, todayDays])
 
   useEffect(() => {
     void refresh()

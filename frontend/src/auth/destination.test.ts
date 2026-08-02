@@ -125,3 +125,44 @@ describe('/history as a destination', () => {
     expect(resolveDestination(onboarded, '/app')).toBeNull()
   })
 })
+
+// --- /trends is the THIRD protected in-app path (issue #20, PR 2 — row 35) ---
+//
+// Appended, not edited: every test above is #17's and PR 1's oracle and stays byte-identical.
+// Row 35 mirrors PR 1's rows 17-20 one path further on, and it is the same terminal line
+// being taught a third in-app route. The regression guards matter more each time: the more
+// paths that line has to know about, the easier it is to fix one by breaking another.
+
+describe('/trends as a destination', () => {
+  // AC row 35: an onboarded user on /trends stays put. Without this the dashboard is
+  // literally unreachable — the terminal line bounces everything it does not recognise.
+  it('lets an onboarded user stay on /trends', () => {
+    expect(resolveDestination(onboarded, '/trends')).toBeNull()
+  })
+
+  // AC row 35: a signed-out visitor to /trends goes to /login. A screen that renders a
+  // user's tonnage, weight and calories must not be reachable without a session.
+  it('sends a signed-out visitor from /trends to /login', () => {
+    expect(resolveDestination(signedOut, '/trends')).toBe('/login')
+  })
+
+  // AC row 35: an un-onboarded user goes to /onboarding. They have no timezone yet, so
+  // every window on this screen would be computed in UTC — #18's bug through the front door.
+  it('funnels a not-yet-onboarded user from /trends to /onboarding', () => {
+    expect(resolveDestination(fresh, '/trends')).toBe('/onboarding')
+  })
+
+  // AC row 35 (REGRESSION GUARD, explicitly named by the row): /app is unchanged. This is
+  // the assertion that fails if /trends is added by rewriting the terminal line rather than
+  // extending it.
+  it('still leaves an onboarded user alone on /app', () => {
+    expect(resolveDestination(onboarded, '/app')).toBeNull()
+  })
+
+  // AC row 35 (the other regression guard the row implies): /history — PR 1's path — is
+  // still reachable once /trends exists. Two in-app paths were already a set; three is a
+  // list someone can truncate.
+  it('still leaves an onboarded user alone on /history', () => {
+    expect(resolveDestination(onboarded, '/history')).toBeNull()
+  })
+})

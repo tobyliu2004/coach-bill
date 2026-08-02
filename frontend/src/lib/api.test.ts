@@ -203,6 +203,95 @@ describe('listCheckIns — the days window', () => {
   })
 })
 
+// --- trends (issue #20, PR 2 — row 36) ---
+//
+// Appended, not edited: every assertion above is #18/#19/PR 1's oracle and stays exactly as
+// it was. A second `import` from './api' rather than a change to the one at the top of the
+// file, so the diff against the oracle commit shows additions only.
+//
+// This is the transport. Without it every backend row above is unreachable from the UI, and
+// every frontend row is testing a function nothing calls.
+
+import { type Trends } from './api'
+
+// Typed as `Trends` on purpose: every measure below is a STRING because the backend stores
+// these as Postgres `numeric` and Pydantic serialises `Decimal` to a JSON string (decision
+// 7). If the mirrored interface ever declares them as `number`, this fixture stops
+// type-checking and `npm run build` fails — which is the only place that drift is catchable,
+// since types are erased before vitest runs.
+const TRENDS: Trends = {
+  start_date: '2026-07-03',
+  end_date: '2026-08-01',
+  volume: [{ date: '2026-08-01', volume_kg: '3200', bodyweight_sets: 0, bodyweight_reps: 0 }],
+  exercises: [{ name: 'squat', sets: 12, reps: 96, volume_kg: '9180', heaviest_kg: '140' }],
+  sleep: [{ date: '2026-08-01', hours: '8', quality: 4 }],
+  bodyweight: [{ date: '2026-08-01', weight_kg: '81.25' }],
+  nutrition: [
+    {
+      date: '2026-08-01',
+      calories: '2000',
+      protein_g: '140',
+      carbs_g: '200',
+      fat_g: '60',
+    },
+  ],
+}
+
+describe('getTrends', () => {
+  // AC row 36: api.getTrends(30) issues GET /trends?days=30 with the Bearer header, and
+  // returns the parsed payload. The URL is pinned as a literal — a wrapper that dropped the
+  // query string would silently render the backend's default window and every window row
+  // would be untestable from the UI.
+  it('GETs /trends?days=30 with the Bearer header and returns the parsed payload', async () => {
+    const { api, fetchMock } = makeApi({ token: 't', response: jsonResponse(200, TRENDS) })
+
+    const result = await api.getTrends(30)
+
+    expect(result).toEqual(TRENDS)
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('http://api.test/trends?days=30')
+    expect(init.method ?? 'GET').toBe('GET')
+    expect(new Headers(init.headers).get('Authorization')).toBe('Bearer t')
+  })
+
+  // AC row 36: the argument actually reaches the URL. Asserting only the 30 case would pass
+  // against a wrapper that hardcoded `?days=30` and ignored its parameter.
+  it('sends the days it was given, not a hardcoded window', async () => {
+    const { api, fetchMock } = makeApi({ token: 't', response: jsonResponse(200, TRENDS) })
+
+    await api.getTrends(7)
+
+    const [url] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('http://api.test/trends?days=7')
+  })
+
+  // AC row 36 + backend row 7: an empty window is a normal 200 payload, not a rejection —
+  // the wrapper must resolve with the window and five empty series so the screen can render
+  // 'empty' (frontend row 33) rather than 'load-failed'.
+  it('resolves with the empty-window payload rather than treating it as a failure', async () => {
+    const empty: Trends = {
+      start_date: '2026-07-03',
+      end_date: '2026-08-01',
+      volume: [],
+      exercises: [],
+      sleep: [],
+      bodyweight: [],
+      nutrition: [],
+    }
+    const { api } = makeApi({ token: 't', response: jsonResponse(200, empty) })
+
+    await expect(api.getTrends(30)).resolves.toEqual(empty)
+  })
+
+  // AC row 36 (the auth boundary, shared with the plumbing block at the top): a 401 from
+  // /trends is an ApiAuthError, which is what frontend row 32 turns into a sign-out.
+  it('throws ApiAuthError when the backend rejects the token', async () => {
+    const { api } = makeApi({ token: 't', response: jsonResponse(401, { detail: 'nope' }) })
+
+    await expect(api.getTrends(30)).rejects.toBeInstanceOf(ApiAuthError)
+  })
+})
+
 describe('deleteCheckIn', () => {
   // AC row 11: DELETE /check-ins/{id} to the right path + method with a Bearer header.
   it('DELETEs the id path with the Bearer header', async () => {

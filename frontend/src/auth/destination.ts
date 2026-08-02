@@ -22,7 +22,7 @@ export interface AuthSnapshot {
  * straight back to /app — a new route that is unreachable by construction. Membership, not
  * equality, is what makes adding the third screen a one-line change.
  */
-const APP_PATHS = ['/app', '/history']
+const APP_PATHS = ['/app', '/history', '/trends']
 
 /** Everything that requires a session: the app, plus the onboarding that gates it. */
 const PROTECTED_PATHS = [...APP_PATHS, '/onboarding']

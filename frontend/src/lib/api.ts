@@ -90,6 +90,69 @@ export interface CheckIn {
   facts: CheckInFacts
 }
 
+/**
+ * The computed rollup behind the Trends screen. Mirrors the models in
+ * backend/app/schemas/trends.py — keep them in sync.
+ *
+ * Every measure is a STRING here for the same reason the per-check-in facts are: Postgres
+ * `numeric` -> Pydantic `Decimal` -> a JSON string, because JSON's only number type is a
+ * float. Unlike those, these ARE arithmetic inputs — so they are parsed exactly once, by
+ * `parseNumeric` in lib/trends.ts, and never with a bare `Number(...)` scattered through JSX.
+ */
+export interface TrendsVolumePoint {
+  date: string
+  /** null — never '0' — on a day of purely unweighted work: no tonnage to measure. */
+  volume_kg: string | null
+  bodyweight_sets: number
+  bodyweight_reps: number
+}
+
+export interface TrendsExerciseSummary {
+  /** The canonical catalog name; aliases were resolved at write time (#19). */
+  name: string
+  /** Counts EVERY set, weighted or not... */
+  sets: number
+  reps: number
+  /** ...while these two count only the weighted ones. Asymmetric on purpose. */
+  volume_kg: string | null
+  heaviest_kg: string | null
+}
+
+export interface TrendsSleepPoint {
+  date: string
+  hours: string
+  quality: number | null
+}
+
+export interface TrendsBodyweightPoint {
+  date: string
+  weight_kg: string
+}
+
+export interface TrendsNutritionPoint {
+  date: string
+  calories: string
+  protein_g: string
+  carbs_g: string
+  fat_g: string
+}
+
+export interface Trends {
+  /** The window the SERVER resolved. The chart's axis is laid out from these, so the
+   *  client never recomputes "today" — the drift issue #40 is about. Present even when
+   *  every series is empty, so the screen can say WHICH window was empty. */
+  start_date: string
+  end_date: string
+  /** Sparse: a day with nothing logged is absent, not a row of nulls. Oldest first —
+   *  the opposite of listCheckIns, on purpose. A chart reads left to right; a log reads
+   *  backwards. */
+  volume: TrendsVolumePoint[]
+  exercises: TrendsExerciseSummary[]
+  sleep: TrendsSleepPoint[]
+  bodyweight: TrendsBodyweightPoint[]
+  nutrition: TrendsNutritionPoint[]
+}
+
 /** No session, or the backend rejected the token — the caller should treat as signed out. */
 export class ApiAuthError extends Error {}
 
@@ -144,16 +207,30 @@ export function createApi({
       return request<CheckIn>('/check-ins', { method: 'POST', body: JSON.stringify({ text }) })
     },
     /**
-     * The caller's check-ins. With no argument: today only — the backend's own default, and
-     * the call the daily screen already makes.
+     * The caller's check-ins. With no argument: today only — the backend's own default.
      *
-     * `days` is left off the URL entirely when it wasn't asked for, rather than sent as
-     * `?days=1`. The two are equivalent to the server, but only the bare URL is the request
-     * /app was already sending, and "the existing screen's traffic is byte-identical" is a
-     * property worth being able to state rather than reason about.
+     * `days` is still left off the URL entirely when it wasn't asked for, rather than sent
+     * as `?days=1`. The two are equivalent to the server.
+     *
+     * HISTORICAL NOTE, so this comment doesn't quietly become false: the bare form existed
+     * because it made /app's traffic byte-identical across PR 1's refactor. As of #40 that
+     * is no longer true — /app asks for `todayRequest(...).days`, so it now sends `?days=1`
+     * explicitly. That was the point: a window the screen never names is a window no test
+     * can pin. The no-argument form stays because it is the honest default for any caller
+     * that genuinely means "today".
      */
     listCheckIns(days?: number): Promise<CheckIn[]> {
       return request<CheckIn[]>(days === undefined ? '/check-ins' : `/check-ins?days=${days}`)
+    },
+    /**
+     * The caller's computed trends over their last `days` local days.
+     *
+     * `days` is always sent, unlike `listCheckIns`' optional one: there is no pre-existing
+     * request shape to keep byte-identical here, and being explicit means the URL says what
+     * window is on screen.
+     */
+    getTrends(days: number): Promise<Trends> {
+      return request<Trends>(`/trends?days=${days}`)
     },
     deleteCheckIn(id: string): Promise<void> {
       return request<void>(`/check-ins/${id}`, { method: 'DELETE' })

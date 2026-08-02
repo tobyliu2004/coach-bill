@@ -162,3 +162,52 @@ describe('listView', () => {
     expect(listView({ loading: true, loadFailed: false, checkIns: [] })).toEqual({ kind: 'loading' })
   })
 })
+
+// =======================================================================================
+// Issue #20, PR 2 (Trends) — row 28, the `/app` third of it. Also closes #40.
+//
+// APPENDED, never edited: every line above is #19's oracle and stays byte-identical, and
+// this is a second `import` from './checkInView' rather than a change to the one at the top
+// of the file, so the diff against the oracle commit shows additions only.
+//
+// #40 is that the "which window, computed from whose today" seam is untested on all THREE
+// screens. /trends and /history ask for 30 days; this is the one that must keep asking for
+// exactly one — the daily screen showing a week of check-ins would be as wrong as the
+// history screen showing a day.
+// =======================================================================================
+import { TODAY_DAYS, todayRequest } from './checkInView'
+
+describe('todayRequest', () => {
+  // AC row 28 (the /app half): the same input as rows 27 and 28's history half — at
+  // 2026-08-02 00:30 UTC in Los Angeles — yields the SAME today, '2026-08-01', but
+  // `days: 1`. The shared today is what stops the three screens disagreeing about which
+  // day it is; the different `days` is what keeps them different screens.
+  it("asks for exactly one day, ending on the user's local today", () => {
+    expect(
+      todayRequest({ timezone: 'America/Los_Angeles' }, new Date('2026-08-02T00:30:00Z')),
+    ).toEqual({ days: 1, today: '2026-08-01' })
+  })
+
+  // AC row 28: pinned to the exported constant, and it is 1. A "helpful" widening of the
+  // daily screen's window to 7 would be invisible on screen (today's rows still render
+  // first) and would quietly multiply this endpoint's payload for every user, every load.
+  it('is built from the exported TODAY_DAYS constant, which is 1', () => {
+    expect(TODAY_DAYS).toBe(1)
+    expect(todayRequest({ timezone: 'UTC' }, new Date('2026-08-01T12:00:00Z')).days).toBe(
+      TODAY_DAYS,
+    )
+  })
+
+  // AC row 28 (the seatbelt, shared with backend row 4): no profile yet, or no timezone on
+  // it, computes today in UTC rather than throwing.
+  it('falls back to UTC when there is no profile or no timezone', () => {
+    expect(todayRequest(null, new Date('2026-08-02T00:30:00Z'))).toEqual({
+      days: 1,
+      today: '2026-08-02',
+    })
+    expect(todayRequest({ timezone: null }, new Date('2026-08-02T00:30:00Z'))).toEqual({
+      days: 1,
+      today: '2026-08-02',
+    })
+  })
+})

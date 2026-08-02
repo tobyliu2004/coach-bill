@@ -15,6 +15,7 @@ const ResetPassword = lazy(() => import('./pages/ResetPassword'))
 const Login = lazy(() => import('./pages/Login'))
 const AppHome = lazy(() => import('./pages/AppHome'))
 const History = lazy(() => import('./pages/History'))
+const Trends = lazy(() => import('./pages/Trends'))
 
 export function AppRoutes() {
   return (
@@ -29,6 +30,7 @@ export function AppRoutes() {
             <Route path="/onboarding" element={<Onboarding />} />
             <Route path="/app" element={<AppHome />} />
             <Route path="/history" element={<History />} />
+            <Route path="/trends" element={<Trends />} />
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

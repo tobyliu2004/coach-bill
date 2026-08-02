@@ -14,6 +14,7 @@
  * wrong reference point.
  */
 import type { CheckIn } from './api'
+import { MONTHS, previousDay, type RequestProfile, type ScreenRequest } from './dates'
 
 /** One day's check-ins, in the order the API returned them. */
 export interface DayGroup {
@@ -32,20 +33,13 @@ export type HistoryView =
   | { kind: 'empty' }
   | { kind: 'days'; days: DayGroup[] }
 
-const MONTHS = [
-  'Jan',
-  'Feb',
-  'Mar',
-  'Apr',
-  'May',
-  'Jun',
-  'Jul',
-  'Aug',
-  'Sep',
-  'Oct',
-  'Nov',
-  'Dec',
-]
+/**
+ * The History screen's window: the last 30 days.
+ *
+ * Exported rather than inlined in the screen so a test can assert the screen asks for THIS
+ * number — see `historyRequest` below and issue #40.
+ */
+export const HISTORY_DAYS = 30
 
 /**
  * Today's date in the user's own zone, as 'YYYY-MM-DD' — the same string shape the API
@@ -96,16 +90,19 @@ function formatParts(
 }
 
 /**
- * The day before `date`, both as 'YYYY-MM-DD'.
+ * What the History screen asks for: 30 days, ending on the USER's local today.
  *
- * `Date.UTC` does the calendar arithmetic — day 0 of a month is the last day of the one
- * before, so month and year boundaries fall out for free. Naive string math ('01' - 1) is
- * the version that breaks on the first of the month, and `new Date('2026-08-01')` parses as
- * UTC midnight and would shift a day in any zone behind UTC.
+ * THIS FUNCTION IS ISSUE #40, the /history third of it. These two decisions used to live
+ * inline in the screen — `localToday(profile?.timezone ?? null, new Date())` next to a bare
+ * `HISTORY_DAYS` — where nothing could assert them: swapping the zone for `null` or the
+ * constant for `1` left all 212 tests green while the timezone guarantee silently died.
+ * Rows 21-25 of PR 1 closed the *decision* dimension; this closes the *wiring* one.
+ *
+ * A missing profile or timezone falls back to UTC — the same seatbelt the server's
+ * `local_today` takes — rather than throwing mid-render.
  */
-function previousDay(date: string): string {
-  const [year, month, day] = date.split('-').map(Number)
-  return new Date(Date.UTC(year, month - 1, day - 1)).toISOString().slice(0, 10)
+export function historyRequest(profile: RequestProfile | null, now: Date): ScreenRequest {
+  return { days: HISTORY_DAYS, today: localToday(profile?.timezone ?? null, now) }
 }
 
 /**

@@ -7,8 +7,8 @@ import { useAuth } from '../auth/useAuth'
  * and the way out.
  *
  * Extracted from AppHome the moment a second screen existed, rather than copied — a header
- * duplicated across pages is how the sign-out button ends up in two places and drifts. Two
- * screens use this today, three after Trends.
+ * duplicated across pages is how the sign-out button ends up in two places and drifts. All
+ * three screens use it.
  *
  * The nav stays grayscale on purpose: active is `text-fg`, inactive is `text-fg-muted`.
  * Amber is capped at ~5% of a screen and is already spent on the primary CTA (design.md);
@@ -46,6 +46,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <nav className="flex items-center gap-5">
               <AppNavLink to="/app">Today</AppNavLink>
               <AppNavLink to="/history">History</AppNavLink>
+              <AppNavLink to="/trends">Trends</AppNavLink>
             </nav>
           </div>
           <div className="flex items-center gap-4">
