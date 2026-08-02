@@ -251,7 +251,6 @@ def _sign_in_as(user_id: uuid.UUID, pool: asyncpg.Pool, gate: Any, coach: Any) -
     """Wire the ASGI app to a REAL pool and a verified identity, with fake models."""
     from app.ai.coach import get_coach
     from app.ai.gate import get_gate
-
     from app.deps import get_pool
 
     app.dependency_overrides[get_current_user_id] = lambda: user_id
@@ -330,7 +329,6 @@ async def test_row6_cross_tenant_call_spends_no_model_calls(client: AsyncClient)
 @requires_rls_db
 async def test_row7_insert_guard_blocks_a_reply_to_a_vanished_check_in() -> None:
     from app.db.coach import insert_reply
-
     from app.db.pool import close_pool, create_pool
 
     admin = _require_admin_dsn()
@@ -372,9 +370,8 @@ async def test_row7_insert_guard_blocks_a_reply_to_a_vanished_check_in() -> None
 # empty context would satisfy every "B is absent" assertion vacuously.
 @requires_rls_db
 async def test_row22_context_for_a_contains_nothing_of_bs(client: AsyncClient) -> None:
-    from app.services.coach import reply_to_check_in
-
     from app.db.pool import close_pool, create_pool
+    from app.services.coach import reply_to_check_in
 
     admin = _require_admin_dsn()
     a, b = uuid.uuid4(), uuid.uuid4()
@@ -430,9 +427,8 @@ async def test_row22_context_for_a_contains_nothing_of_bs(client: AsyncClient) -
 # days back is the 15th day and must not appear.
 @requires_rls_db
 async def test_row24_context_holds_fourteen_days_and_not_the_fifteenth() -> None:
-    from app.services.coach import reply_to_check_in
-
     from app.db.pool import close_pool, create_pool
+    from app.services.coach import reply_to_check_in
 
     admin = _require_admin_dsn()
     a = uuid.uuid4()
@@ -469,9 +465,8 @@ async def test_row24_context_holds_fourteen_days_and_not_the_fifteenth() -> None
 # so Bill doesn't repeat himself verbatim day to day without becoming a chat interface.
 @requires_rls_db
 async def test_row27_only_the_three_most_recent_replies_are_in_the_context() -> None:
-    from app.services.coach import reply_to_check_in
-
     from app.db.pool import close_pool, create_pool
+    from app.services.coach import reply_to_check_in
 
     admin = _require_admin_dsn()
     a = uuid.uuid4()
@@ -512,9 +507,8 @@ async def test_row27_only_the_three_most_recent_replies_are_in_the_context() -> 
 # payload), `check_in_id` set, and non-empty content. Read from OUTSIDE RLS.
 @requires_rls_db
 async def test_row28_stored_reply_has_the_right_owner_role_and_parent() -> None:
-    from app.services.coach import reply_to_check_in
-
     from app.db.pool import close_pool, create_pool
+    from app.services.coach import reply_to_check_in
 
     admin = _require_admin_dsn()
     a = uuid.uuid4()
@@ -548,9 +542,8 @@ async def test_row28_stored_reply_has_the_right_owner_role_and_parent() -> None:
 # what this row forbids. `role` stays in the schema for when free-form chat arrives.
 @requires_rls_db
 async def test_row29_no_user_role_row_is_ever_written() -> None:
-    from app.services.coach import reply_to_check_in
-
     from app.db.pool import close_pool, create_pool
+    from app.services.coach import reply_to_check_in
 
     admin = _require_admin_dsn()
     a = uuid.uuid4()
@@ -574,10 +567,9 @@ async def test_row29_no_user_role_row_is_ever_written() -> None:
 # asserted at the fake tier, tests/test_coach.py.)
 @requires_rls_db
 async def test_row30_a_stored_reply_comes_back_with_its_check_in() -> None:
-    from app.services.coach import reply_to_check_in
-
     from app.db.pool import close_pool, create_pool
     from app.services.check_ins import list_check_ins
+    from app.services.coach import reply_to_check_in
 
     admin = _require_admin_dsn()
     a = uuid.uuid4()
@@ -606,10 +598,9 @@ async def test_row30_a_stored_reply_comes_back_with_its_check_in() -> None:
 # `on delete set null`, i.e. "chat outlives a deleted check-in".
 @requires_rls_db
 async def test_row31_deleting_a_check_in_keeps_the_reply_with_a_null_parent() -> None:
-    from app.services.coach import reply_to_check_in
-
     from app.db.pool import close_pool, create_pool
     from app.services.check_ins import delete_check_in
+    from app.services.coach import reply_to_check_in
 
     admin = _require_admin_dsn()
     a = uuid.uuid4()

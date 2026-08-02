@@ -395,7 +395,6 @@ def _sign_in(
     """
     from app.ai.coach import get_coach
     from app.ai.gate import get_gate
-
     from app.deps import get_pool
 
     pool = FakePool(db if db is not None else _Db())
@@ -609,8 +608,9 @@ async def test_row13_gate_failure_is_503_and_fails_closed(client: AsyncClient) -
 # AC row 14 (schema half): the structured-output shape REJECTS a label outside the three.
 # Untrusted model output that didn't validate is a failure, never a default.
 def test_row14_intent_schema_rejects_an_unknown_label() -> None:
-    from app.ai.gate import Intent
     from pydantic import ValidationError
+
+    from app.ai.gate import Intent
 
     for label in ("coach", "crisis", "off_topic"):
         assert Intent.model_validate({"label": label}).label == label
@@ -1124,6 +1124,7 @@ async def test_row36_timeout_is_503_and_stores_nothing(client: AsyncClient) -> N
 # in the service would be inventing a requirement the table doesn't state.
 def test_row36_real_clients_have_a_bounded_timeout() -> None:
     from anthropic import AsyncAnthropic
+
     from app.ai.coach import SonnetCoach
     from app.ai.gate import HaikuGate
 
