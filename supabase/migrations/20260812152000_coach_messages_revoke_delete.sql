@@ -1,0 +1,49 @@
+-- Issue #48 — take back the `delete` grant on `coach_messages` (approved AC row 24).
+--
+-- WHY IT EXISTED. PR #47's review found that a check-in the gate mislabelled `off_topic`
+-- got the brush-off constant stored against it forever, because the reply endpoint is a
+-- get-or-create with no re-classify path. The fix was `DELETE /check-ins/{id}/reply`, and
+-- 20260802170638_coach_messages_one_reply_and_retract.sql granted `delete` to
+-- `authenticated` so that endpoint could work.
+--
+-- WHY IT DOESN'T ANYMORE. #48 removes the off-topic label entirely — the gate now answers
+-- one question ("is this person in danger?") and Bill handles scope himself in prose. With
+-- no off-topic verdict there is nothing to retract, so the route, the service function and
+-- the statement in `db/coach.py` are all gone in this same PR. This grant is the last piece,
+-- and an unused grant is EXACTLY what #37 was about: a privilege nobody calls is not
+-- harmless, it is a capability sitting there for whoever gets hold of the role. The
+-- `coach_app` password reaches this table through `authenticated` (it inherits the role),
+-- and that password is a high-value secret precisely because it can set the JWT claims to
+-- any uuid.
+--
+-- ⚠️ THIS IS ALSO A SAFETY PROPERTY, NOT ONLY HYGIENE. A crisis reply must never be
+-- re-rollable: if a reply could be thrown away and asked again, someone in genuine crisis
+-- could ask, receive the hotlines, and keep asking until the gate mislabelled them and Bill
+-- coached them instead — the app re-rolling away from its own safety response. The deleted
+-- endpoint prevented that in application code, by matching on the reply's exact content, and
+-- 20260802170638's comment said plainly that SQL grants cannot express "only delete a reply
+-- whose content is this exact string". After this migration the rule needs no expression at
+-- all: no route can ask, no statement exists to run, and the role may not delete. Three
+-- independent reasons, none of them a string comparison.
+--
+-- Do not re-grant `delete` for a "regenerate this reply" feature without re-deciding that
+-- question first. See `backend/app/services/coach.py`'s module docstring.
+--
+-- WHAT IS DELIBERATELY LEFT ALONE:
+--   * `select` and `insert` — the two verbs the reply path actually uses (#21 AC row 32).
+--   * `update` — never granted; a stored reply is never edited in place.
+--   * The PARTIAL UNIQUE INDEX from 20260802170638. It is what makes two concurrent replies
+--     converge on one row (`on conflict do nothing`), and it has nothing to do with
+--     retraction. Removing it here would quietly re-open a duplicate-row bug while looking
+--     like cleanup.
+--   * `truncate` / `references` / `trigger` / `maintain` — stripped from every role by
+--     20260717213217 and kept off new tables by its ALTER DEFAULT PRIVILEGES template (#37).
+--     Nothing here hands any of them back.
+--
+-- Migrations are never edited in place, so this is a new forward migration rather than a
+-- change to 20260802170638. The end state is asserted against a real database by
+-- `backend/tests/test_table_privileges.py` (C3_APP_VERBS), whose `coach_messages` row moves
+-- `delete` True -> False in this same PR as an approved amendment to a frozen oracle:
+-- https://github.com/tobyliu2004/coach-bill/issues/48#issuecomment-5268060575
+
+revoke delete on public.coach_messages from authenticated;
