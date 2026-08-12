@@ -58,9 +58,9 @@ def no_live_model() -> Iterator[None]:
     class _NullGate:
         """Labels everything `coach` — the path that exercises the most plumbing.
 
-        Deliberately not `off_topic` or `crisis`: those short-circuit before the coach, so
-        a test that forgot to override would silently never reach half the code it thinks
-        it is covering.
+        Deliberately not `crisis`: that short-circuits before the coach, so a test that
+        forgot to override would silently never reach half the code it thinks it is
+        covering. (`coach` and `crisis` are the only two labels after issue #48.)
         """
 
         async def classify(self, text: str) -> Intent:
