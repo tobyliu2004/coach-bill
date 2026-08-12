@@ -122,9 +122,10 @@ function History() {
                       <Facts checkIn={checkIn} unit={unit} />
                       {/* Read-only here. History never REQUESTS a reply — it renders the
                           ones already stored — so `requesting`/`failed` are both false and
-                          `replyView` can only return 'reply' or 'none'. `onRetry` is
+                          `replyView` can only return 'reply' or 'none'. `onRequest` is
                           therefore unreachable; it stays required on the component so the
-                          Today screen cannot forget to pass one.
+                          Today screen cannot forget to pass one. (The name was `onRetry`
+                          in this comment until #48 — the prop has always been `onRequest`.)
 
                           `live={false}` is the load-bearing prop: thirty cards mount at
                           once here, and announcing every one would be the barrage open as
@@ -135,7 +136,6 @@ function History() {
                         failed={false}
                         live={false}
                         onRequest={() => {}}
-                        onRetract={() => {}}
                       />
                     </li>
                   ))}

@@ -1,5 +1,5 @@
 import type { CheckIn } from '../lib/api'
-import { isRetractable, replyView } from '../lib/coachView'
+import { replyView } from '../lib/coachView'
 
 /**
  * Coach Bill's reply under a check-in — the thing the app is named after.
@@ -23,8 +23,9 @@ import { isRetractable, replyView } from '../lib/coachView'
  * terminal dump. Same treatment as the landing page's `CheckInChapter`.
  */
 
-/** One quiet inline action. Shared so "Try again", "Ask Bill" and "Ask again" cannot drift
- *  apart visually — they are the same affordance in three different states. */
+/** One quiet inline action. Shared so "Try again" and "Ask Bill" cannot drift apart
+ *  visually — they are the same affordance in two different states. (There was a third,
+ *  the retract affordance, until #48 removed it.) */
 function ReplyAction({
   onClick,
   disabled = false,
@@ -56,7 +57,6 @@ export function CoachReply({
   failed,
   live,
   onRequest,
-  onRetract,
 }: {
   checkIn: CheckIn
   /** A reply request is in flight for THIS check-in. */
@@ -69,8 +69,6 @@ export function CoachReply({
   live: boolean
   /** Ask Bill to reply to this check-in. Used by both `failed` and `none`. */
   onRequest: () => void
-  /** Throw away an off-topic reply and ask again. Only reachable when `isRetractable`. */
-  onRetract: () => void
 }) {
   const view = replyView({ reply: checkIn.reply, requesting, failed, live })
 
@@ -141,21 +139,13 @@ export function CoachReply({
             and `break-words` stops a long unbroken string from widening the card. */}
         <span className="font-sans whitespace-pre-wrap break-words">{view.content}</span>
       </p>
-      {/* ONLY for the off-topic constant, and only on the live screen. The gate is a model
-          and will sometimes call a real training check-in off-topic; without this, that
-          verdict is permanent because the endpoint is get-or-create.
-
-          A crisis reply is never retractable — `isRetractable` says so and the server
-          enforces it independently. If it were, someone in genuine crisis could ask again
-          until the gate handed them coaching instead of the hotlines. */}
-      {live && isRetractable(view.content) && (
-        <p className="mt-2 font-mono text-xs text-fg-muted">
-          Actually about your training?{' '}
-          <ReplyAction onClick={onRetract} disabled={requesting}>
-            Ask again
-          </ReplyAction>
-        </p>
-      )}
+      {/* NO "ASK AGAIN" HERE, AND THAT IS DELIBERATE (#48). This used to offer a retract
+          on the off-topic constant. That label is gone, so there is nothing to retract —
+          and the affordance must not come back as a general "regenerate this reply": a
+          crisis reply has to be un-re-rollable, or someone in genuine crisis could keep
+          asking until the gate mislabelled them and Bill coached them instead. The server
+          now makes that impossible (no route, no statement, no grant), so this is the
+          screen agreeing with it rather than the screen enforcing it. */}
     </div>
   )
 }
