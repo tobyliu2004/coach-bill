@@ -80,7 +80,7 @@ async def post_reply(
 
 
 # THERE IS NO DELETE HERE, AND THAT IS LOAD-BEARING (#48). `DELETE /check-ins/{id}/reply`
-# existed only to escape a wrong `off_topic` verdict; with that label gone there is nothing
+# existed only to escape a wrong off-topic verdict; with that label gone there is nothing
 # to retract, so the route came out and the `delete` grant with it. What survives the removal
 # is the safety rule it used to enforce in code: A CRISIS REPLY IS NEVER RE-ROLLABLE. It is
 # now guaranteed by construction — no endpoint, no statement, no grant — rather than by

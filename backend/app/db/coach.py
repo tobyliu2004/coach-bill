@@ -117,7 +117,7 @@ async def insert_reply(
 # ⚠️ NOTHING IN THIS MODULE DELETES A ROW, ON PURPOSE (#48). A `delete_reply_with_content`
 # used to live here, matching on the reply's exact text so that a `CRISIS_REPLY` could never
 # be the row it removed. It served one caller — the retract endpoint — and that endpoint
-# existed only to escape a wrong `off_topic` verdict, so both died with the label.
+# existed only to escape a wrong off-topic verdict, so both died with the label.
 #
 # The safety rule survives them and is now enforced by absence: no statement here can delete
 # a coach message, `authenticated` no longer holds the `delete` grant, and there is no route
