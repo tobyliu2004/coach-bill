@@ -16,6 +16,28 @@ Steps 1 and 2 both run before any model call, and that is not an optimisation. S
 what stops a stranger billing us by guessing ids, and step 2 is what stops a double-click
 costing ~1.7¢ and storing a second reply.
 
+⚠️ A REPLY IS NEVER RETRACTED, RE-ROLLED, OR REGENERATED — AND THAT IS A SAFETY PROPERTY.
+
+There used to be a `DELETE /check-ins/{id}/reply` and a `retract_off_topic_reply` here. They
+existed only to escape a wrong `off_topic` verdict, and #48 deleted that label, so both came
+out along with the `delete` grant on the table. **The argument they carried is the valuable
+part and it outlives the code, so it lives here now:**
+
+If a reply could be thrown away and asked again, someone in genuine crisis could re-roll —
+ask, get the hotlines, ask again, and keep asking until the gate mislabelled them and handed
+them coaching instead. The app would be re-rolling away from its own safety response, one
+attempt at a time. The old endpoint prevented this by matching on the reply's exact content,
+so `CRISIS_REPLY` matched nothing. **Now it is prevented by construction: there is no delete
+endpoint, no delete statement in `db/`, and no `delete` grant for `authenticated`** — three
+independent reasons it cannot happen, none of which depend on a string comparison being
+right. That is strictly stronger than what it replaced.
+
+A real coach reply is equally non-retractable, for a duller reason: "I didn't like that
+answer" is a request to spend money again, and that belongs behind the per-user caps in #26.
+
+**So do not add a "regenerate this reply" action without re-deciding the crisis question
+first.** It is not a UI nicety; it is this paragraph, undone.
+
 FAILS CLOSED. Unlike `POST /check-ins`, which swallows extraction failures because losing
 derived facts must never cost a user their words, nothing here is stored on a partial
 success. A gate failure means we don't know whether this is a crisis; a coach failure means
@@ -316,31 +338,6 @@ async def reply_to_check_in(
     if raced is not None:
         return ReplyResult(_reply_out(raced), created=False)
     return None
-
-
-async def retract_off_topic_reply(pool: asyncpg.Pool, user_id: UUID, check_in_id: UUID) -> bool:
-    """Drop a stored `off_topic` reply so the user can ask again. True iff one was removed.
-
-    The gate is a model, so it will eventually mislabel a real training check-in as
-    off-topic — and AC row 2's get-or-create then hands that constant back forever. Before
-    this existed the only escape was deleting the check-in and retyping it, which stranded
-    the wrong reply as an orphan. (Found by `project-reviewer` on PR #47; the `delete` grant
-    it needs is an approved amendment to AC row 32.)
-
-    ⚠️ OFF-TOPIC ONLY, AND THAT IS A SAFETY PROPERTY. `OFF_TOPIC_REPLY` is passed as the
-    content to match, so a `CRISIS_REPLY` matches nothing and cannot be retracted by any
-    request this endpoint can make. If every reply were retractable, someone in genuine
-    crisis could ask again and again until the gate handed them coaching instead of the
-    hotlines — the app would be re-rolling away from its own safety response. A real coach
-    reply is equally non-retractable, for a duller reason: "I didn't like that answer" is a
-    request to spend money again, and that belongs behind the caps in #26, not here.
-
-    Enforced in the STATEMENT, not by reading first and then deleting — a check-then-act
-    would leave a window where the content changed in between. SQL grants cannot express
-    "only this exact string", which is why the boundary lives in code and the migration
-    comment says so.
-    """
-    return await coach_db.delete_reply_with_content(pool, user_id, check_in_id, OFF_TOPIC_REPLY)
 
 
 async def _coach_reply(pool: asyncpg.Pool, user_id: UUID, raw_text: str, coach: Coach) -> str:

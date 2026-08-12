@@ -20,7 +20,7 @@ from app.ai.gate import GateDep
 from app.auth import UserIdDep
 from app.deps import PoolDep
 from app.schemas.coach import CoachReplyOut
-from app.services.coach import CoachUnavailable, reply_to_check_in, retract_off_topic_reply
+from app.services.coach import CoachUnavailable, reply_to_check_in
 
 router = APIRouter()
 
@@ -79,27 +79,11 @@ async def post_reply(
     return result.reply
 
 
-@router.delete("/check-ins/{check_in_id}/reply", status_code=status.HTTP_204_NO_CONTENT)
-async def retract_reply(user_id: UserIdDep, pool: PoolDep, check_in_id: UUID) -> Response:
-    """Drop a stored **off-topic** reply so the caller can ask Bill again.
-
-    The gate is a model and will eventually mislabel a real training check-in as off-topic;
-    without this, `POST`'s get-or-create hands that constant back forever and the only
-    escape is deleting the check-in and retyping it. (PR #47 review.)
-
-    **Only an off-topic reply can be retracted, and that is a safety property.** A
-    `CRISIS_REPLY` is refused — if it were not, someone in genuine crisis could ask again
-    and again until the gate handed them coaching instead of the hotlines, and the app would
-    be re-rolling away from its own safety response. A real coach reply is refused too, for
-    a duller reason: "give me a different answer" is a request to spend money again, and
-    that belongs behind the per-user caps in #26.
-
-    Everything that is not a retractable off-topic reply is a **404** — no reply, someone
-    else's check-in, a nonexistent one, a crisis reply, a real reply. One shape for all of
-    them on purpose: a distinct code for "exists but you may not touch it" would confirm
-    both that the row exists and what kind it is, which is the enumeration oracle backend
-    rule 5 exists to prevent.
-    """
-    if not await retract_off_topic_reply(pool, user_id, check_in_id):
-        raise _NOT_FOUND
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+# THERE IS NO DELETE HERE, AND THAT IS LOAD-BEARING (#48). `DELETE /check-ins/{id}/reply`
+# existed only to escape a wrong `off_topic` verdict; with that label gone there is nothing
+# to retract, so the route came out and the `delete` grant with it. What survives the removal
+# is the safety rule it used to enforce in code: A CRISIS REPLY IS NEVER RE-ROLLABLE. It is
+# now guaranteed by construction — no endpoint, no statement, no grant — rather than by
+# matching on the reply's content. Re-introducing a general "regenerate this reply" would
+# undo that, so it is a decision to re-take deliberately, not a feature to add casually.
+# See `services/coach.py`'s module docstring for the full argument.
