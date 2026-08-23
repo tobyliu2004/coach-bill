@@ -51,7 +51,21 @@ For data, auth, and AI-pipeline work:
 - The build then makes those tests pass. **Never edit, weaken, skip, or delete them.** A test
   that looks wrong is a *correctness-table bug* → back to Toby, not a quiet patch. `/ship` diffs
   the test files **against the oracle commit** (not `main` — vs `main` a weakened assertion in a
-  branch-new file is invisible) and every hunk has to be justified.
+  branch-new file is invisible) and every hunk has to be justified. An amendment Toby approves
+  is recorded on the issue **with its direction stated** — narrowing (can newly fail) is safe;
+  **widening (can newly pass) is the dangerous one and must say so in the test itself.**
+- **DESCRIBE THE CATEGORY; DO NOT ENUMERATE EXAMPLES.** This project's recurring bug, and it
+  has now bitten at three levels in one feature (#48): `GATE_SYSTEM_PROMPT` listed off-topic
+  examples instead of describing the app, so the most on-topic request in the product was
+  refused — and then the *tests written to fix that* did the same thing, with flat tuples of
+  phrasings, so three **correct** live replies went red because nobody had listed the word
+  "store". Prefer a rule that matches the category (e.g. an inability word within N words of an
+  app-action word) over a list of strings, and **self-test any such assertion in both
+  directions** — must-pass cases and must-fail cases — before trusting it.
+- **A test that cannot fail is not a test.** `_substance_hits` matched bare substrings, so
+  "inte**rest**ed" scored a `rest` hit and a content-free reply passed the two rows written to
+  catch content-free replies. When an assertion is a marker match, prove it rejects the thing
+  it exists to reject.
 
 ## Conventions
 - Types are mandatory: TS `strict`, mypy strict, Pydantic for every API and AI-extraction shape.
@@ -88,8 +102,22 @@ relevant one first** — `backend.md` before designing an endpoint, `schema.md` 
 ## Commands
 Backend (run from `backend/`):
 - Dev server: `uv run uvicorn app.main:app --port 8001 --reload` (8000 is taken by Docker on this machine)
-- Tests: `uv run pytest` · with real-DB integration test: `uv run --env-file .env pytest`
-- Type-check: `uv run mypy app` · Lint: `uv run ruff check`
+- Type-check: `uv run mypy app`
+- **Lint: `rm -rf .ruff_cache && uv run ruff check`** — always clear the cache first. A stale
+  ruff cache has reported "All checks passed!" while CI found real errors **twice** (#18, #48).
+  Remembering harder has already failed; clear it every time.
+- **Tests — `uv run pytest` alone SILENTLY SKIPS the 16 real-DB tests.** Run them the way CI's
+  `rls-tests` job does, or you are not running the suite:
+  ```
+  DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
+  RLS_DATABASE_URL=postgresql://coach_app:coach_app_dev_pw@127.0.0.1:54322/postgres \
+  RLS_ADMIN_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres \
+  uv run pytest -q
+  ```
+- **A prompt change is not verified until the live tier has run**, and it never runs in CI:
+  `LIVE_MODEL_TESTS=1 uv run pytest tests/test_coach_live_model.py` (~20 calls, cents).
+  ⚠️ Do NOT use `--env-file .env` for this — that file's `DATABASE_URL` is **production**.
+  Pass `ANTHROPIC_API_KEY` alone and point `DATABASE_URL` at local.
 
 Frontend (run from `frontend/`):
 - Dev server: `npm run dev` (localhost:5173)
