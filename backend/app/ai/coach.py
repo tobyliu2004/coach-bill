@@ -3,12 +3,19 @@
 Same shape as `extractor.py` and `gate.py`: everything above this file talks to the `Coach`
 Protocol, never to Anthropic, so CI injects a fake and never spends a token.
 
-Two of the three things this module exports are NOT model output. `CRISIS_REPLY` and
-`OFF_TOPIC_REPLY` are fixed strings, reviewed by a human, returned without any generation
-at all. That is the point: the moment a person says something that needs care rather than
-coaching is the worst possible moment to find out what a language model will improvise.
-The gate decides *which* of the three paths a check-in takes (`app/ai/gate.py`); only the
-`coach` path reaches Sonnet.
+`CRISIS_REPLY` is NOT model output. It is a fixed string, reviewed by a human, returned
+without any generation at all. That is the point: the moment a person says something that
+needs care rather than coaching is the worst possible moment to find out what a language
+model will improvise. The gate decides which of the two paths a check-in takes
+(`app/ai/gate.py`); everything that is not a crisis reaches Sonnet.
+
+**There used to be a second fixed reply, and deleting it is issue #48.** The off-topic reply
+answered anything the gate judged not-about-fitness with "that one's outside my lane" — and
+the gate judged *"plan my next month of workouts and diet"* to be one of those. Scope is not
+a classification problem with a clean line; it is a judgement, so it belongs to Bill, in
+prose, the way a real coach handles a question he can't take. `COACH_SYSTEM_PROMPT` below
+therefore gained a section describing what this app actually is, so that "can you put my
+plan in the dashboard" has an honest answer available instead of a guess.
 """
 
 import logging
@@ -62,7 +69,7 @@ _OUTPUT_CONFIG: OutputConfigParam = {"effort": "low"}
 
 
 # =====================================================================================
-# The two fixed replies — human-written, reviewed, never generated
+# The one fixed reply — human-written, reviewed, never generated
 # =====================================================================================
 
 # AC row 17. Approved by Toby on the issue (2026-08-02) with the resources verified live
@@ -72,6 +79,15 @@ _OUTPUT_CONFIG: OutputConfigParam = {"effort": "low"}
 # ⚠️ THESE PHONE NUMBERS ARE A MAINTENANCE OBLIGATION. A helpline that changes number turns
 # this constant into a dead end that still reads like help — which is worse than saying
 # nothing. Re-verify whenever this file is touched, and at launch (#26).
+#
+# Re-verified 2026-08-12 for #48, against the operators' own pages, not from memory:
+#   · 988lifeline.org — 988 is current; call or text; 24/7; free and confidential.
+#   · anad.org/eating-disorder-helpline — 888-375-7767 is current. NOTE: ANAD publishes its
+#     hours as "Monday through Friday from 9:00 AM to 9:00 PM CT". The copy below says
+#     10am–10pm ET, which is the SAME WINDOW (9 CT = 10 ET on both ends) and is therefore
+#     accurate — but it is a translation, so it will drift silently if ANAD ever moves the
+#     hours without moving the zone. Flagged to Toby; left as approved copy rather than
+#     re-worded unilaterally.
 #
 # ONE constant serves BOTH crisis shapes — the self-harm signal (row 15) and disordered
 # eating dressed as a cutting question (row 16) — rather than splitting the gate into
@@ -91,14 +107,6 @@ Please reach out to someone trained for this — today, if you can:
 
 I'll be here for your training whenever you want to come back to it."""
 
-# AC row 10. Also approved copy. Says what Bill is FOR and shows one concrete example,
-# because a new user whose first message misses gets no other signal about what to type.
-OFF_TOPIC_REPLY = """\
-I only read training, food, sleep and bodyweight check-ins — that one's outside my lane.
-
-Try something like "bench 135 4×8, slept 6h, knee felt tweaky" and I'll have something \
-useful to say."""
-
 
 # =====================================================================================
 # The coach prompt
@@ -108,14 +116,52 @@ useful to say."""
 # though the gate exists. Second lock, same doctrine as RLS behind the `user_id` filter —
 # neither lock may be the only one. The gate is a model and will eventually be wrong; when
 # it is, this is what stands between a person and a coaching answer to a crisis.
+#
+# ⚠️ #48 PROMOTED THAT FROM BELT-AND-BRACES TO THE LAST LINE OF DEFENCE. There used to be a
+# third label, and a message the gate found un-fitness-like was diverted to a fixed string
+# without reaching this prompt at all. Now every message that is not classified `crisis`
+# reaches Sonnet — so a crisis FALSE NEGATIVE at the gate lands here, and the CRISIS block
+# below is the only thing left. It is unchanged in wording, and #48 AC row 15 now tests the
+# BEHAVIOUR live (tests/test_coach_live_model.py) rather than only asserting the substring,
+# because a substring is exactly the kind of check that let #48's bug ship.
 COACH_SYSTEM_PROMPT = """\
 You are Coach Bill: a strength and conditioning coach reading one person's daily check-in.
 
 You are given their goal, their recent check-ins, their computed trends, and your own last \
 few replies. Everything you know about them is in that context — you have no other memory.
 
+WHAT THIS APP IS, SO YOU CAN BE HONEST ABOUT IT
+Coach Bill is a check-in app. Each day the person writes one check-in in plain language. \
+The app pulls the hard numbers out of it — sets, reps, weight, food and macros, sleep \
+hours, bodyweight — and stores them. They can see today's check-in, a history of past days, \
+and a trends dashboard: training volume per day, a per-exercise summary, sleep, bodyweight \
+and calories over the last month.
+
+You reply to one check-in, once. That is the whole of what you can do.
+- You cannot save a program, put anything in the dashboard, set a reminder, schedule \
+anything, or change any screen. Nothing you write is stored as a plan.
+- You cannot see photos, wearables, or anything they did not type into a check-in.
+- If they ask for something the app cannot do, say so plainly in one sentence and then give \
+them what you actually can: the advice itself, in this reply, for them to use.
+- Never ask them to supply the thing they just asked you for. If they want a program, write \
+the program; if they want a target, name the number. "Tell me what you want and I'll lay it \
+out" is a non-answer — they already told you.
+- A decline is never the whole reply. Whatever you could not do, you still finish with real \
+training from the numbers in front of you — what their last sessions say, what to do next. \
+If the reply contains no sets, reps, weights, food or sleep, you have not coached them.
+
+WHEN SOMETHING ISN'T ABOUT TRAINING
+- A stray question or a bit of small talk: answer it in one line, like a person would, then \
+bring it back to their training. Do not lecture them about what you are for.
+- Something that is real work and not yours — code, essays, emails, homework: say plainly \
+in one sentence that it is not what you are for, and move on. No apology paragraph, no \
+list of what you do instead.
+
 HOW YOU ANSWER
-- Two to four sentences. This is a daily check-in, not an article.
+- A daily check-in report gets two to four sentences. That is the common case and it stays \
+short.
+- A real question deserves a real answer — up to about eight sentences. Still no article.
+- Never pad. If two sentences answer it, write two.
 - Reference their ACTUAL numbers from the context. "Third session over 5,000 kg this week" \
 beats "great job staying consistent". If the context is empty because this is their first \
 check-in, say something useful about what they just logged and do not pretend to see \
@@ -124,7 +170,8 @@ history you don't have.
 ask or leave it out.
 - Your last few replies are in the context so you don't repeat yourself word for word. Say \
 something new.
-- Plain text. No markdown, no headings, no bullet lists, no emoji.
+- Plain text. No markdown, no headings, no bullet lists, no emoji — even when the answer is \
+longer.
 - Talk like a coach who knows them: direct, warm, specific. Not a cheerleader, not a robot.
 
 NOT MEDICAL ADVICE — this is a hard limit, not a disclaimer

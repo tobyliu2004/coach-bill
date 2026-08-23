@@ -120,11 +120,31 @@ C3_APP_VERBS: dict[str, dict[str, bool]] = {
     # permanent, with no re-classify path. Toby approved that second amendment explicitly
     # (2026-08-02) and chose its narrow shape. `update` stays False — a reply's text must
     # never change under a user who already read it; a replacement goes through the same
-    # guarded insert as an original. The "only off-topic replies are retractable" rule is a
-    # SERVICE-level check (`services/coach.py::retract_off_topic_reply`), because SQL grants
-    # cannot express it — see the migration's comment for why that distinction is a safety
-    # property and not a nicety.
-    "coach_messages": {"select": True, "insert": True, "update": False, "delete": True},
+    # guarded insert as an original.
+    #
+    # 🔓 AMENDED A THIRD TIME, BY ISSUE #48: `delete` goes back to False.
+    #
+    # The second amendment bought exactly one thing — an escape hatch from a wrong
+    # `off_topic` verdict. #48 deletes the `off_topic` label, so the endpoint, the service
+    # function and the DELETE statement all go, and the grant is the last piece of a feature
+    # that no longer exists. An unused grant is precisely what #37 was about: least privilege
+    # is not "what the app happened to need once", it is what it needs NOW. The migration
+    # `<ts>_coach_messages_revoke_delete.sql` is the one that makes this true.
+    #
+    # This is the SAFETY direction, and it is worth naming: while the grant existed, "a
+    # crisis reply can never be retracted" was a service-level rule (a content match in
+    # `retract_off_topic_reply`) sitting on top of a database that would happily delete the
+    # row. After #48 the row cannot be deleted by the app at all — the guarantee moves from
+    # a check to a construction, and #48 AC row 25 asserts no such statement exists anywhere
+    # in backend/app/.
+    #
+    # Approved BEFORE any implementation existed, as row 24 of #48's v2 acceptance table:
+    #   table:    https://github.com/tobyliu2004/coach-bill/issues/48#issuecomment-5268060575
+    #   approval: https://github.com/tobyliu2004/coach-bill/issues/48#issuecomment-5268138951
+    # Same sanctioned path as the two amendments above, and the same rule around it: three
+    # approved edits in the open are fine; one quiet one is not. If a future change needs
+    # `delete` or `update` back, it needs a new approved row.
+    "coach_messages": {"select": True, "insert": True, "update": False, "delete": False},
 }
 
 

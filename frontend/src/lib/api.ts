@@ -273,17 +273,6 @@ export function createApi({
         signal: AbortSignal.timeout(70_000),
       })
     },
-    /**
-     * Retract an off-topic reply so Bill can be asked again.
-     *
-     * 404 for anything that is not a retractable off-topic reply — including a crisis reply
-     * and a real coaching reply, both of which the server refuses on purpose. The screen
-     * only offers this where `isRetractable` says so, but the server is the one enforcing
-     * it; this call is not the boundary.
-     */
-    retractReply(checkInId: string): Promise<void> {
-      return request<void>(`/check-ins/${checkInId}/reply`, { method: 'DELETE' })
-    },
     deleteCheckIn(id: string): Promise<void> {
       return request<void>(`/check-ins/${id}`, { method: 'DELETE' })
     },

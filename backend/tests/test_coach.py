@@ -39,12 +39,53 @@ way tests/test_table_privileges.py does it, so each row fails on its own with a 
 ImportError instead of one collection error hiding thirty rows.
 
 Every test names the AC row it covers.
+
+=====================================================================================
+🔓 AMENDED BY ISSUE #48 — APPROVED IN ADVANCE, IN THE OPEN. THIS IS THE AUDIT TRAIL.
+=====================================================================================
+#48 drops the `off_topic` label: the gate now answers one question ("is this person in
+danger?"), `coach` is everything that is not a crisis, and there is no diversion left but
+crisis. That changes three of #21's rows and adds five new ones, all inside the oracle
+commit on `fix/48-gate-asks-one-question` and none of it after:
+
+  * DELETED — `test_row10_off_topic_never_calls_sonnet_and_stores_off_topic_reply`. #21 row
+    10 no longer exists; there is no `off_topic` label and no `OFF_TOPIC_REPLY`.
+  * AMENDED — `test_row14_intent_schema_rejects_an_unknown_label`: the valid set is now
+    exactly ("coach", "crisis") and `"off_topic"` moves into the junk list (#48 AC row 8).
+  * AMENDED — `test_row14_unknown_label_is_treated_as_a_gate_failure`: parametrised over
+    two out-of-range labels, `"off_topic"` among them (#48 AC row 9).
+  * NOT AMENDED — `test_row23_every_coach_statement_is_owner_scoped` still asserts THREE
+    statements. #48 AC row 26 as drafted said three become two; that was a table bug,
+    raised by `test-author` before any implementation and ruled on by Toby in the open:
+    https://github.com/tobyliu2004/coach-bill/issues/48#issuecomment-5269456376
+    This test never counted `delete_reply_with_content` (it arrived in PR #47's review
+    round, after #21's oracle froze), so deleting that function removes an UNCOUNTED
+    statement and the count stays 3. Row 26 is reclassified from a behaviour #48 changes
+    to an invariant it must not break. See the comment on the assertion itself.
+  * ADDED — #48 AC rows 20, 21, 22, 23, 25 (section G at the bottom).
+
+These edits are legitimate ONLY because Toby approved each of them BEFORE any
+implementation existed, as rows of the v2 acceptance table on issue #48:
+  table:    https://github.com/tobyliu2004/coach-bill/issues/48#issuecomment-5268060575
+  approval: https://github.com/tobyliu2004/coach-bill/issues/48#issuecomment-5268138951
+Same doctrine as #21 row 32's amendment of #37's frozen oracle (see the audit block at
+tests/test_table_privileges.py). The rule that makes an oracle worth anything is that you
+do not edit it to make code pass; changing an approved expectation, in the open, against a
+row Toby signed off in advance, is the sanctioned path — quietly relaxing an assertion
+because the code tripped it is the thing that path exists to prevent.
+
+⚠️ AND THE LESSON THAT COST THE MOST: rows 20-22 below are SUBSTRING TESTS ON PROMPTS. They
+are cheap tripwires that catch a deletion. They are NOT proof that a prompt works — #21's
+suite was fully green while the gate was filing the most on-topic request the app can
+receive as off-topic. The real check on both prompts is the live tier,
+tests/test_coach_live_model.py, and it says so in its own docstring.
 """
 
 import inspect
 import re
 import uuid
 from datetime import UTC, date, datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -566,27 +607,13 @@ async def test_row9_coach_label_calls_sonnet_with_the_check_in_text(client: Asyn
     assert len(_inserts(pool)) == 1
 
 
-# AC row 10: "what's the capital of France" -> `off_topic`; Sonnet is NEVER called (a count
-# of exactly 0 — a short-looking reply proves nothing); the stored reply is EXACTLY
-# OFF_TOPIC_REPLY.
-async def test_row10_off_topic_never_calls_sonnet_and_stores_off_topic_reply(
-    client: AsyncClient,
-) -> None:
-    from app.ai.coach import OFF_TOPIC_REPLY
-
-    text = "what's the capital of France"
-    gate = _FakeGate(intent=_intent("off_topic"))
-    coach = _FakeCoach()
-    pool, _g, _c = _sign_in(_Db(check_ins=[_check_in_row(raw_text=text)]), gate=gate, coach=coach)
-
-    resp = await client.post(f"/check-ins/{CHECK_IN_ID}/reply")
-
-    assert resp.status_code == 201
-    assert coach.calls == []  # exactly zero Sonnet calls — the cost control itself
-    assert resp.json()["content"] == OFF_TOPIC_REPLY
-    inserts = _inserts(pool)
-    assert len(inserts) == 1
-    assert OFF_TOPIC_REPLY in inserts[0][1]  # stored verbatim, not paraphrased
+# 🔓 #21 AC row 10 ("what's the capital of France" -> `off_topic`, exactly OFF_TOPIC_REPLY,
+# zero Sonnet calls) WAS TESTED HERE. #48 deletes the row and the test with it: there is no
+# `off_topic` label, no `OFF_TOPIC_REPLY`, and trivia now goes to Bill, who answers it like
+# a person and steers back. Its replacement is not a unit test at all — it is #48 AC rows 6
+# and 16 in the live tier, because "answers like a person" is not something a fake can show.
+# Approved in advance as the "what dies" section of the v2 table:
+# https://github.com/tobyliu2004/coach-bill/issues/48#issuecomment-5268060575
 
 
 # AC row 13: the gate raises (vendor down / timeout) -> 503, nothing stored, no Sonnet call.
@@ -605,36 +632,51 @@ async def test_row13_gate_failure_is_503_and_fails_closed(client: AsyncClient) -
     _assert_check_ins_and_facts_untouched(pool)
 
 
-# AC row 14 (schema half): the structured-output shape REJECTS a label outside the three.
-# Untrusted model output that didn't validate is a failure, never a default.
+# #48 AC row 8 (amends #21 row 14, schema half): the structured-output shape accepts
+# EXACTLY `coach` and `crisis`, and rejects everything else. Untrusted model output that
+# didn't validate is a failure, never a default — that doctrine is unchanged; what changed
+# is the size of the valid set.
+#
+# 🔓 `"off_topic"` moved from the accepted list to the junk list. That is the amendment, and
+# it is the load-bearing one in the whole ticket: as long as the schema still accepts the
+# label, a stale prompt or a cached model behaviour can put the app back where #48 found it.
+# Approved in advance as row 8 of the v2 table:
+# https://github.com/tobyliu2004/coach-bill/issues/48#issuecomment-5268060575
 def test_row14_intent_schema_rejects_an_unknown_label() -> None:
     from pydantic import ValidationError
 
     from app.ai.gate import Intent
 
-    for label in ("coach", "crisis", "off_topic"):
+    for label in ("coach", "crisis"):
         assert Intent.model_validate({"label": label}).label == label
-    for junk in ("banana", "COACH", "", "fitness"):
+    for junk in ("off_topic", "banana", "COACH", "", "fitness"):
         with pytest.raises(ValidationError):
             Intent.model_validate({"label": junk})
 
 
-# AC row 14 (dispatch half): a gate that hands back a label outside the three is treated as
-# a GATE FAILURE -> 503, nothing stored, no Sonnet call. `model_construct` bypasses
-# validation on purpose: it is the only way to stand in for "the gate produced something
-# outside the three labels" at this seam, and the point of the row is that the dispatch
-# must never quietly default such a value to `coach` (or to `off_topic`).
-async def test_row14_unknown_label_is_treated_as_a_gate_failure(client: AsyncClient) -> None:
+# #48 AC row 9 (#21 row 14, dispatch half — unchanged doctrine, wider input): a gate that
+# hands back a label outside the TWO is treated as a GATE FAILURE -> 503, nothing stored,
+# exactly zero Sonnet calls. The fail-closed `else` branch stays.
+#
+# `model_construct` bypasses validation on purpose: it is the only way to stand in for "the
+# gate produced something outside the labels" at this seam. `"off_topic"` is parametrised
+# alongside `"banana"` because after #48 it IS an out-of-range label, and a dispatch that
+# still has a branch for it would pass the `"banana"` case while quietly keeping the old
+# behaviour alive.
+@pytest.mark.parametrize("label", ["banana", "off_topic"])
+async def test_row14_unknown_label_is_treated_as_a_gate_failure(
+    client: AsyncClient, label: str
+) -> None:
     from app.ai.gate import Intent
 
-    gate = _FakeGate(intent=Intent.model_construct(label="banana"))
+    gate = _FakeGate(intent=Intent.model_construct(label=label))
     coach = _FakeCoach()
     pool, _g, _c = _sign_in(_Db(check_ins=[_check_in_row()]), gate=gate, coach=coach)
 
     resp = await client.post(f"/check-ins/{CHECK_IN_ID}/reply")
 
     assert resp.status_code == 503
-    assert coach.calls == []
+    assert len(coach.calls) == 0
     _assert_nothing_stored(pool)
 
 
@@ -643,10 +685,14 @@ async def test_row14_unknown_label_is_treated_as_a_gate_failure(client: AsyncCli
 # =====================================================================================
 
 
-# AC row 15 (plumbing half): the gate returns `crisis` -> Sonnet is NEVER called (exactly
-# zero), and the stored reply is EXACTLY CRISIS_REPLY. The single most important row in the
-# table; whether Haiku actually labels the row-15 sentence `crisis` is the live tier's half
-# (tests/test_coach_live_model.py), and neither half is sufficient alone.
+# #48 AC row 14 (= #21 row 15, plumbing half — unchanged, and re-approved verbatim): the
+# gate returns `crisis` -> Sonnet is NEVER called (exactly zero), the stored reply is
+# EXACTLY CRISIS_REPLY, and there is exactly ONE row. Still true under two labels: crisis is
+# now the ONLY diversion, so this is the only short-circuit left in the dispatch.
+#
+# The single most important row in the table; whether Haiku actually labels that sentence
+# `crisis` is the live tier's half (#48 AC row 10 in tests/test_coach_live_model.py), and
+# neither half is sufficient alone.
 async def test_row15_crisis_never_calls_sonnet_and_stores_crisis_reply(
     client: AsyncClient,
 ) -> None:
@@ -847,6 +893,30 @@ async def test_row23_every_coach_statement_is_owner_scoped() -> None:
         pool, USER_ID, [CHECK_IN_ID, SECOND_CHECK_IN_ID]
     )
 
+    # 🔓 #48 AC row 26, AS CORRECTED AND RE-APPROVED BY TOBY (2026-08-12). The count stays
+    # 3. The v2 table originally said "now 2 statements, not 3" — that was a drafting error,
+    # raised by test-author before any implementation existed, ruled on in the open, and
+    # corrected on the issue rather than patched quietly here:
+    # https://github.com/tobyliu2004/coach-bill/issues/48#issuecomment-5268060575
+    #
+    # WHY THE NUMBER DOESN'T MOVE, which is the interesting part:
+    #   - this test calls THREE db/coach.py functions (`get_reply_for_check_in`,
+    #     `insert_reply`, `list_replies_for_check_ins`), each issuing one statement against
+    #     public.coach_messages.
+    #   - it never called `delete_reply_with_content`. That function arrived in PR #47's
+    #     review round, AFTER #21's oracle froze, and nobody added it here — so #48 deletes
+    #     a statement this test was never counting, and 3 stays 3.
+    #
+    # ⚠️ THAT GAP IS A REAL WEAKNESS IN THIS GUARD, FILED SEPARATELY. The count exists to
+    # notice a NEW unfenced statement — but it only ever sees statements issued by functions
+    # this test remembers to call. A whole db function with a DELETE in it slipped past it
+    # once already. Do not read a green here as "every statement in db/coach.py is fenced";
+    # read it as "every statement these three functions issue is fenced".
+    #
+    # The ASSERTION ITSELF IS UNCHANGED AND UNWEAKENED: a real number, never loosened to
+    # `>=`, and every counted statement still has to carry a contiguous `user_id = $N` bound
+    # to the caller. This row is an INVARIANT #48 must not break, not a behaviour it changes,
+    # so it is green before the build and must stay green after it.
     statements = [(q, a) for q, a in pool.conn.calls if "public.coach_messages" in _normalize(q)]
     assert len(statements) == 3, (
         f"expected one statement per db/coach.py function; got {len(statements)}: "
@@ -1168,3 +1238,305 @@ async def test_row37_failures_never_touch_the_check_in_or_its_facts(
     assert resp.status_code == 503
     _assert_nothing_stored(pool)
     _assert_check_ins_and_facts_untouched(pool)
+
+
+# =====================================================================================
+# G. Issue #48 — the prompts, and the removals (rows 20, 21, 22, 23, 25)
+# =====================================================================================
+#
+# Written before any implementation change existed, from the v2 table approved on
+# 2026-08-12: https://github.com/tobyliu2004/coach-bill/issues/48#issuecomment-5268138951
+#
+# ⚠️ ROWS 20-22 ARE SUBSTRING TESTS, AND THE APPROVED TABLE CALLS THEM "cheap tripwires,
+# not proof" IN SO MANY WORDS. They catch a deletion — someone dropping the crisis block or
+# leaving `off_topic` behind. They CANNOT catch a prompt that contains all the right words
+# and still misclassifies, which is precisely what shipped in #21. The real check on both
+# prompts is tests/test_coach_live_model.py, run by hand before any prompt change ships.
+
+_BACKEND_APP = Path(__file__).resolve().parents[1] / "app"
+_FRONTEND_SRC = Path(__file__).resolve().parents[2] / "frontend" / "src"
+
+
+def _source_files(root: Path, suffixes: tuple[str, ...]) -> list[Path]:
+    """Every SHIPPED source file under `root`, ignoring caches, build output and tests.
+
+    AMENDED after the oracle commit (98a0a30), approved by Toby before the fix, recorded
+    on the issue: https://github.com/tobyliu2004/coach-bill/issues/48
+
+    Row 22 asks whether `off_topic` survives in shipped source. The backend half gets that
+    for free — `backend/app/` and `backend/tests/` are different trees — but vitest
+    colocates frontend tests in `src/`, so the scan also read
+    `frontend/src/lib/coachRemovals.test.ts`: the row 27/28 oracle file, which cannot
+    assert `OFF_TOPIC_REPLY` is absent without naming it. Unfixed, the branch could never
+    go green without touching an oracle test.
+
+    That this was an oversight and not the approved intent is provable from the oracle
+    commit's own red evidence, which reported "23 off_topic lines (19 backend, 4
+    frontend)" in `ai/coach.py`, `ai/gate.py`, `db/coach.py`, `routes/coach.py`,
+    `services/coach.py` and `coachView.ts` — all implementation. The tree at 98a0a30
+    actually held 28: those 23 plus 5 in this scan's own new test file, uncounted.
+
+    So this is a narrowing to what row 22 always meant, not a weakening: all 23 counted
+    lines are still guarded, and the count assertion below still proves the walk found a
+    real tree.
+    """
+    ignored = {"__pycache__", "node_modules", "dist", ".venv"}
+    return [
+        path
+        for path in sorted(root.rglob("*"))
+        if path.suffix in suffixes
+        and not ignored & set(path.parts)
+        and not path.name.endswith((".test.ts", ".test.tsx"))
+    ]
+
+
+def _joined_source(path: Path) -> str:
+    """A file's text with adjacent string literals joined and whitespace collapsed.
+
+    SQL in this codebase is written as implicitly-concatenated literals across source
+    lines, so a statement can be split anywhere — including in the middle of `delete from
+    public.coach_messages`. Row 25 asks whether the STATEMENT exists, not whether a line
+    does, so the search runs over the joined text as well as the raw one.
+    """
+    text = path.read_text(encoding="utf-8")
+    joined = re.sub(r"[\"']\s*[\"']", "", text)
+    return " ".join(joined.lower().split())
+
+
+# #48 AC row 20: GATE_SYSTEM_PROMPT describes what the app IS; defines `coach` as
+# everything that is not a crisis; keeps the "genuine ambiguity -> crisis" line; contains no
+# `off_topic` and no enumerated off-topic list.
+#
+# The prompt-shape bug that caused #48 was a prompt that ENUMERATED examples instead of
+# describing the app, so the last two assertions are the ones with teeth here: a re-added
+# list of what counts as out of scope recreates the bug exactly.
+def test_i48_row20_gate_prompt_describes_the_app_and_defines_coach_by_principle() -> None:
+    from app.ai.gate import GATE_SYSTEM_PROMPT
+
+    lowered = GATE_SYSTEM_PROMPT.lower()
+
+    sentences = [s for s in re.split(r"(?<=[.!?])\s+|\n", lowered) if s.strip()]
+
+    # (a) It says what the app IS. A classifier that has never been told what it is
+    # classifying FOR can only pattern-match on the examples it was given.
+    #
+    # Asserted as a CONJUNCTION INSIDE ONE SENTENCE — the app named, and what a person does
+    # with it — because either half alone is satisfied by the prompt that shipped the bug
+    # (it says "the app" in passing, and it says "training" in an example list). A
+    # description is a sentence, not two words in the same document.
+    app_markers = ("coach bill", "the app", "fitness app", "training app", "coaching app")
+    usage_markers = ("check-in", "check in", "checks in", "logs", "training")
+    described = [
+        s
+        for s in sentences
+        if any(a in s for a in app_markers) and any(u in s for u in usage_markers)
+    ]
+    assert described, (
+        f"GATE_SYSTEM_PROMPT never describes the app: no single sentence pairs one of "
+        f"{app_markers} with one of {usage_markers}. Describing what the app IS, instead of "
+        "enumerating what falls outside it, is the whole fix in #48."
+    )
+
+    # (b) `coach` is defined as EVERYTHING THAT IS NOT A CRISIS — a principle, not a list.
+    # This one only bites together with (d): the old prompt also said "coach — everything
+    # else", but "else" meant "neither crisis NOR off_topic", and off_topic was a co-equal
+    # bucket you could fall into. With two labels and no enumerated list, "everything else"
+    # IS the principle. (d) is what makes that true; this keeps the sentence there.
+    principle_markers = (
+        "everything that is not a crisis",
+        "anything that is not a crisis",
+        "everything that isn't a crisis",
+        "anything that isn't a crisis",
+        "not a crisis",
+        "everything else",
+        "anything else",
+    )
+    assert any(marker in lowered for marker in principle_markers), (
+        f"GATE_SYSTEM_PROMPT does not define `coach` as everything that is not a crisis "
+        f"(expected one of {principle_markers}); a definition by example is what filed "
+        "'plan my next month and put it in the dashboard' as out of scope"
+    )
+
+    # (c) The "genuine ambiguity -> crisis" line survives, and resolves to CRISIS. Asserted
+    # per sentence rather than per prompt: `crisis` appears all over this prompt, so
+    # "ambiguity is mentioned AND crisis is mentioned" would pass on a prompt that says
+    # "when unsure, choose coach". Safety wins the tie-break — that was judgment call #1.
+    ambiguity_markers = ("ambigu", "unsure", "in doubt", "not sure", "uncertain", "borderline")
+    ambiguous_lines = [s for s in sentences if any(m in s for m in ambiguity_markers)]
+    assert ambiguous_lines, (
+        f"GATE_SYSTEM_PROMPT has no tie-break line at all (expected one of "
+        f"{ambiguity_markers}); the gate must be told what to do when it genuinely can't "
+        "tell, and that answer is `crisis`"
+    )
+    assert any("crisis" in line for line in ambiguous_lines), (
+        "the tie-break line does not resolve to `crisis`: "
+        f"{ambiguous_lines}. Genuine crisis-vs-coach ambiguity resolves to crisis — the one "
+        "label that exists for safety does not lose a coin flip."
+    )
+
+    # (d) No `off_topic`, and no enumerated off-topic list. The enumerated phrases are the
+    # ones named in the issue as what the model pattern-matched against.
+    assert "off_topic" not in lowered, (
+        "GATE_SYSTEM_PROMPT still mentions `off_topic`; the label does not exist after #48"
+    )
+    enumerations = ("write code", "write emails", "code or emails", "essay", "trivia")
+    for phrase in enumerations:
+        assert phrase not in lowered, (
+            f"GATE_SYSTEM_PROMPT enumerates an out-of-scope example ({phrase!r}) — an "
+            "example list is the shape of prompt that caused this bug, and 'plan it all "
+            "out … put it in the dashboard' pattern-matched straight onto this one"
+        )
+
+
+# #48 AC row 21: COACH_SYSTEM_PROMPT contains a description of the app (what Bill can and
+# cannot do) AND still contains the crisis block with all three resources verbatim and the
+# not-medical-advice block.
+#
+# The three resources are asserted as EXACT strings, not as properties, because that is what
+# the row says and because a hotline number is the one piece of copy where a paraphrase is a
+# defect. (#21 AC row 17's currency warning applies: a number that has been discontinued is
+# a dead end that still reads like help. Re-verify against the operators' own pages whenever
+# this list or CRISIS_REPLY is touched.)
+def test_i48_row21_coach_prompt_describes_the_app_and_keeps_both_safety_blocks() -> None:
+    from app.ai.coach import COACH_SYSTEM_PROMPT
+
+    lowered = COACH_SYSTEM_PROMPT.lower()
+
+    # (a) What the app is, and what Bill can and cannot do. Without this, "can you put my
+    # plan in the dashboard" has no honest answer available to the model (#48 AC rows 4/18).
+    #
+    # The dashboard is named specifically, and that is a deliberate choice worth defending:
+    # it is the write-surface the reported bug turned on, and rows 4 and 18 both use it as
+    # THE case. A prompt that never mentions it cannot ground row 18's "says plainly it
+    # can't put anything in the dashboard". If a future prompt describes the app well in
+    # other words, that is a correctness-table conversation, not a marker edit.
+    assert "dashboard" in lowered, (
+        "COACH_SYSTEM_PROMPT never mentions the dashboard — the one app surface the user "
+        "asked Bill to write to (#48 AC rows 4 and 18). Bill cannot answer honestly about "
+        "a thing he was never told exists; he guesses, which is what #48 is fixing."
+    )
+
+    # ...and it says what Bill CANNOT do, IN THE SAME SENTENCE as something about the app.
+    # Asserted per sentence on purpose: this prompt is full of ordinary negations ("do not
+    # pretend to see history you don't have"), so a prompt-wide `any("don't have")` passes
+    # on the prompt that shipped the bug. What has to be new is a stated limit ABOUT THE APP.
+    limit_markers = (
+        "can't",
+        "cannot",
+        "can not",
+        "unable to",
+        "no way to",
+        "don't have the ability",
+        "never claim",
+        "do not claim",
+    )
+    app_words = ("dashboard", "app", "plan", "program", "save", "add", "create", "write")
+    sentences = [s for s in re.split(r"(?<=[.!?])\s+|\n", lowered) if s.strip()]
+    limit_lines = [
+        s
+        for s in sentences
+        if any(m in s for m in limit_markers) and any(w in s for w in app_words)
+    ]
+    assert limit_lines, (
+        "COACH_SYSTEM_PROMPT never states a limit ABOUT THE APP — no sentence pairs one of "
+        f"{limit_markers} with one of {app_words}. A coach who doesn't know his own limits "
+        "invents them, and the invented answer here is 'sure, I've added it to your "
+        "dashboard'."
+    )
+
+    # (b) The crisis block, with all three resources verbatim. After #48 this is the LAST
+    # line of defence, not belt-and-braces: crisis is the only diversion left, so a gate
+    # false negative means Sonnet answers a crisis message and this block is what it has.
+    for resource in ("988", "888-375-7767", "findahelpline.com"):
+        assert resource in COACH_SYSTEM_PROMPT, (
+            f"COACH_SYSTEM_PROMPT no longer names {resource!r}; all three resources are "
+            "required verbatim, and the behaviour behind this substring is #48 AC row 15 "
+            "in tests/test_coach_live_model.py"
+        )
+
+    # (c) The not-medical-advice block (same marker list as #21 AC row 18).
+    medical_markers = (
+        "medical advice",
+        "not a doctor",
+        "not a medical",
+        "medical professional",
+        "healthcare professional",
+        "diagnos",
+    )
+    assert any(marker in lowered for marker in medical_markers), (
+        f"COACH_SYSTEM_PROMPT has no not-medical-advice instruction (expected one of "
+        f"{medical_markers})"
+    )
+
+
+# #48 AC row 22: the string `off_topic` / `OFF_TOPIC` appears NOWHERE in backend/app/ or
+# frontend/src/. The label, the constant, the mirrored copy, the service branch, the type
+# union — all of it. A leftover branch is a live path back to the bug.
+def test_i48_row22_the_off_topic_string_is_gone_from_the_whole_app() -> None:
+    files = [
+        *_source_files(_BACKEND_APP, (".py",)),
+        *_source_files(_FRONTEND_SRC, (".ts", ".tsx")),
+    ]
+    # The scan must actually have scanned something — an empty glob would make this test
+    # pass by finding nothing, which is the vacuous-green failure mode of every file walk.
+    assert len(files) > 20, f"the source scan found only {len(files)} files; the paths are wrong"
+
+    offenders: list[str] = []
+    for path in files:
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if "off_topic" in line.lower():
+                offenders.append(f"{path}:{lineno}: {line.strip()}")
+
+    assert offenders == [], (
+        "`off_topic` still exists in shipped source after #48 removed the label:\n"
+        + "\n".join(offenders)
+    )
+
+
+# #48 AC row 23: `DELETE /check-ins/{id}/reply` does not exist -> 405, not 404.
+#
+# 405 SPECIFICALLY, and the difference is the entire test. A 404 is what the route returns
+# TODAY for a reply it won't retract, so a 404 here would be indistinguishable between "the
+# route is gone" and "the route is alive and declined". Only 405 (Starlette's answer when
+# the path exists for another method) proves the endpoint itself was removed.
+async def test_i48_row23_the_retract_endpoint_no_longer_exists(client: AsyncClient) -> None:
+    pool, gate, coach = _sign_in(_Db(check_ins=[_check_in_row()]))
+
+    resp = await client.delete(f"/check-ins/{CHECK_IN_ID}/reply")
+
+    assert resp.status_code == 405, (
+        "DELETE /check-ins/{id}/reply must not exist after #48 — with no off-topic label "
+        "there is nothing to retract, and 'give me a different answer' is a request to "
+        "spend money again (that is #26's per-user caps, not a button)"
+    )
+    assert pool.conn.calls == []  # a route that doesn't exist reaches no database
+    assert gate.calls == []
+    assert coach.calls == []
+    _assert_nothing_stored(pool)
+
+
+# #48 AC row 25: backend/app/ contains NO `delete from public.coach_messages` statement
+# anywhere.
+#
+# This replaces #47's `test_a_crisis_reply_can_never_be_retracted`, and it is STRONGER: that
+# test proved one caller refused one deletion, which leaves the deleting statement sitting
+# in db/ for the next caller to find. This proves the statement does not exist at all. A
+# crisis reply is now un-re-rollable BY CONSTRUCTION — do not re-introduce a general
+# "regenerate this reply" without re-deciding that safety question.
+def test_i48_row25_no_statement_anywhere_deletes_a_coach_message() -> None:
+    pattern = re.compile(r"delete\s+from\s+(?:public\.)?coach_messages")
+
+    files = _source_files(_BACKEND_APP, (".py",))
+    assert len(files) > 10, f"the source scan found only {len(files)} files; the path is wrong"
+
+    offenders: list[str] = []
+    for path in files:
+        if pattern.search(_joined_source(path)):
+            offenders.append(str(path))
+
+    assert offenders == [], (
+        "a statement that deletes coach_messages rows still exists in backend/app/:\n"
+        + "\n".join(offenders)
+        + "\nThe grant is revoked in the same PR (#48 AC row 24), so this statement could "
+        "only fail at runtime — but the safety property is that no code can ask."
+    )

@@ -109,33 +109,6 @@ function AppHome() {
     [onError],
   )
 
-  /**
-   * Throw away an off-topic reply and ask Bill again.
-   *
-   * Two calls, and the ORDER matters: the DELETE has to land before the POST, because the
-   * POST is get-or-create and would otherwise just hand back the reply we are trying to
-   * replace. Clearing `reply` locally between them is what makes the card show "Bill is
-   * reading your check-in…" instead of flashing the old off-topic text while the new one
-   * generates.
-   *
-   * The server refuses to retract anything that is not the off-topic constant — a crisis
-   * reply above all — so a 404 here means "not retractable", and the right response is to
-   * leave the existing reply alone rather than to blank the card.
-   */
-  const askAgain = useCallback(
-    async (id: string) => {
-      try {
-        await api.retractReply(id)
-      } catch (err) {
-        onError(err, () => setReplyFailed((ids) => new Set(ids).add(id)))
-        return
-      }
-      setCheckIns((rows) => rows.map((row) => (row.id === id ? { ...row, reply: null } : row)))
-      await requestReply(id)
-    },
-    [onError, requestReply],
-  )
-
   async function submit() {
     const body = text.trim()
     if (!body || busy) return
@@ -273,7 +246,6 @@ function AppHome() {
                     failed={replyFailed.has(checkIn.id)}
                     live
                     onRequest={() => void requestReply(checkIn.id)}
-                    onRetract={() => void askAgain(checkIn.id)}
                   />
                 </li>
               ))}

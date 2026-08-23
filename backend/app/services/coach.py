@@ -8,13 +8,35 @@ THE ORDER OF OPERATIONS IS THE DESIGN. Reading `reply_to_check_in` top to bottom
   1. Is this check-in the caller's?   -> no: 404, and we have spent nothing (AC rows 5/6)
   2. Has Bill already answered it?    -> yes: return that reply, zero model calls (row 2)
   3. What kind of message is this?    -> the gate; a failure here is a 503 (row 13)
-  4. crisis / off_topic               -> a fixed constant, no Sonnet at all (rows 10/15/16)
-  5. coach                            -> assemble context, generate, validate (rows 21-27)
+  4. crisis                           -> the fixed constant, no Sonnet at all (rows 15/16)
+  5. coach — i.e. everything else     -> assemble context, generate, validate (rows 21-27)
   6. Store it, proving the parent     -> guard blocks: 404, no orphan (row 7)
 
 Steps 1 and 2 both run before any model call, and that is not an optimisation. Step 1 is
 what stops a stranger billing us by guessing ids, and step 2 is what stops a double-click
 costing ~1.7¢ and storing a second reply.
+
+⚠️ A REPLY IS NEVER RETRACTED, RE-ROLLED, OR REGENERATED — AND THAT IS A SAFETY PROPERTY.
+
+There used to be a `DELETE /check-ins/{id}/reply` and a retract-the-off-topic-reply service
+function here. They existed only to escape a wrong off-topic verdict, and #48 deleted that
+label, so both came out along with the `delete` grant on the table. **The argument they
+carried is the valuable part and it outlives the code, so it lives here now:**
+
+If a reply could be thrown away and asked again, someone in genuine crisis could re-roll —
+ask, get the hotlines, ask again, and keep asking until the gate mislabelled them and handed
+them coaching instead. The app would be re-rolling away from its own safety response, one
+attempt at a time. The old endpoint prevented this by matching on the reply's exact content,
+so `CRISIS_REPLY` matched nothing. **Now it is prevented by construction: there is no delete
+endpoint, no delete statement in `db/`, and no `delete` grant for `authenticated`** — three
+independent reasons it cannot happen, none of which depend on a string comparison being
+right. That is strictly stronger than what it replaced.
+
+A real coach reply is equally non-retractable, for a duller reason: "I didn't like that
+answer" is a request to spend money again, and that belongs behind the per-user caps in #26.
+
+**So do not add a "regenerate this reply" action without re-deciding the crisis question
+first.** It is not a UI nicety; it is this paragraph, undone.
 
 FAILS CLOSED. Unlike `POST /check-ins`, which swallows extraction failures because losing
 derived facts must never cost a user their words, nothing here is stored on a partial
@@ -32,7 +54,7 @@ from uuid import UUID
 
 import asyncpg
 
-from app.ai.coach import CRISIS_REPLY, OFF_TOPIC_REPLY, Coach
+from app.ai.coach import CRISIS_REPLY, Coach
 from app.ai.gate import IntentGate
 from app.db import check_ins as check_ins_db
 from app.db import coach as coach_db
@@ -273,19 +295,25 @@ async def reply_to_check_in(
                 logger.exception("intent gate failed for check_in_id=%s", check_in_id)
                 raise CoachUnavailable("the intent gate is unavailable") from exc
 
-            # 4/5. ROUTE. The two fixed replies never touch Sonnet — that is both the cost
-            #      control and, for `crisis`, the safety control (AC rows 10/15/16).
+            # 4/5. ROUTE. `crisis` is the ONLY path that does not reach Sonnet, and it is a
+            #      safety control rather than a cost one: the fixed reply is human-written
+            #      and involves no generation at all (AC rows 15/16).
             if intent.label == "crisis":
                 content = CRISIS_REPLY
-            elif intent.label == "off_topic":
-                content = OFF_TOPIC_REPLY
             elif intent.label == "coach":
                 content = await _coach_reply(pool, user_id, raw_text, coach)
             else:
-                # Untrusted output that didn't validate is a failure, NEVER a default (AC
-                # row 14). Defaulting to `coach` would send an unclassified crisis to
-                # Sonnet; defaulting to `off_topic` would silently drop one. Neither is an
-                # acceptable way to be wrong.
+                # THE `else` STAYS EVEN THOUGH THE LITERAL HAS ONLY TWO MEMBERS, and mypy
+                # now considers this branch unreachable. That is exactly why it is worth
+                # keeping: `Intent` validates output from a MODEL, and the ways a label can
+                # arrive outside the union are all runtime ways — a stale off-topic label from
+                # a cached or mis-pinned model, `model_construct` skipping validation, a
+                # future third label added to the Literal without a branch added here.
+                # Untrusted output that didn't validate is a failure, NEVER a default (#48
+                # AC row 9): defaulting to `coach` would send an unclassified crisis message
+                # straight to Sonnet, which is the one way of being wrong that costs more
+                # than a 503. A `TypeError` from falling off the end of an if/elif would be
+                # a 500; this is a 503 with nothing stored and a retry that works.
                 logger.error("intent gate returned an unknown label %r", intent.label)
                 raise CoachUnavailable(f"unknown intent label: {intent.label!r}")
     except TimeoutError as exc:
@@ -316,31 +344,6 @@ async def reply_to_check_in(
     if raced is not None:
         return ReplyResult(_reply_out(raced), created=False)
     return None
-
-
-async def retract_off_topic_reply(pool: asyncpg.Pool, user_id: UUID, check_in_id: UUID) -> bool:
-    """Drop a stored `off_topic` reply so the user can ask again. True iff one was removed.
-
-    The gate is a model, so it will eventually mislabel a real training check-in as
-    off-topic — and AC row 2's get-or-create then hands that constant back forever. Before
-    this existed the only escape was deleting the check-in and retyping it, which stranded
-    the wrong reply as an orphan. (Found by `project-reviewer` on PR #47; the `delete` grant
-    it needs is an approved amendment to AC row 32.)
-
-    ⚠️ OFF-TOPIC ONLY, AND THAT IS A SAFETY PROPERTY. `OFF_TOPIC_REPLY` is passed as the
-    content to match, so a `CRISIS_REPLY` matches nothing and cannot be retracted by any
-    request this endpoint can make. If every reply were retractable, someone in genuine
-    crisis could ask again and again until the gate handed them coaching instead of the
-    hotlines — the app would be re-rolling away from its own safety response. A real coach
-    reply is equally non-retractable, for a duller reason: "I didn't like that answer" is a
-    request to spend money again, and that belongs behind the caps in #26, not here.
-
-    Enforced in the STATEMENT, not by reading first and then deleting — a check-then-act
-    would leave a window where the content changed in between. SQL grants cannot express
-    "only this exact string", which is why the boundary lives in code and the migration
-    comment says so.
-    """
-    return await coach_db.delete_reply_with_content(pool, user_id, check_in_id, OFF_TOPIC_REPLY)
 
 
 async def _coach_reply(pool: asyncpg.Pool, user_id: UUID, raw_text: str, coach: Coach) -> str:

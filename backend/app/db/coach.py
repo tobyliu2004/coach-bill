@@ -114,35 +114,17 @@ async def insert_reply(
         return row
 
 
-async def delete_reply_with_content(
-    pool: asyncpg.Pool, user_id: UUID, check_in_id: UUID, content: str
-) -> bool:
-    """Delete the caller's reply to one check-in **only if it still says `content`**.
-
-    True iff a row was actually deleted.
-
-    THE CONTENT MATCH IS THE SAFETY BOUNDARY, not a convenience. The caller passes
-    `OFF_TOPIC_REPLY`, so a `CRISIS_REPLY` and a real coaching reply both match nothing and
-    survive. That is what stops someone re-rolling past the crisis resources until the gate
-    hands them coaching instead — see the migration comment. Doing it in the same statement
-    rather than as a read-then-delete also closes the window where a reply could change
-    between the check and the delete.
-
-    `id` is never named here: the row is identified by (owner, parent, exact content), so
-    there is no client-supplied row id to forge in the first place. `user_id` is still
-    filtered in the same statement as the first lock (backend rule 2), and `role` pins this
-    to assistant rows so a future 'user' row can never be swept up by it.
-    """
-    async with authed_conn(pool, user_id) as conn:
-        deleted_id: UUID | None = await conn.fetchval(
-            "delete from public.coach_messages "
-            " where check_in_id = $2 and user_id = $1 and role = 'assistant' and content = $3 "
-            "returning id",
-            user_id,
-            check_in_id,
-            content,
-        )
-        return deleted_id is not None
+# ⚠️ NOTHING IN THIS MODULE DELETES A ROW, ON PURPOSE (#48). A `delete_reply_with_content`
+# used to live here, matching on the reply's exact text so that a `CRISIS_REPLY` could never
+# be the row it removed. It served one caller — the retract endpoint — and that endpoint
+# existed only to escape a wrong off-topic verdict, so both died with the label.
+#
+# The safety rule survives them and is now enforced by absence: no statement here can delete
+# a coach message, `authenticated` no longer holds the `delete` grant, and there is no route
+# that would call one. A crisis reply is un-re-rollable because there is no mechanism, not
+# because a string comparison came out right. `tests/test_coach.py::test_i48_row25_*` asserts
+# the statement does not exist anywhere in `app/`, which is what keeps this from quietly
+# coming back. The argument in full is in `services/coach.py`'s module docstring.
 
 
 async def list_replies_for_check_ins(

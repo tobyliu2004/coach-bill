@@ -9,10 +9,42 @@ Findings covered:
   1. CONCURRENCY — two simultaneous replies to one check-in both spent Sonnet and both
      inserted. Now a partial unique index makes the loser a no-op and the service returns
      the winner's reply.
-  3. RETRACTION — a mislabelled `off_topic` reply was permanent. Now it can be dropped and
-     re-asked, and CRUCIALLY a crisis reply cannot.
+  3. RETRACTION — REMOVED BY ISSUE #48. See the audit block below.
   4. DEADLINE — gate and coach retry independently, so the real worst case was ~120s. Now
      one bound covers the whole generation.
+
+=====================================================================================
+🔓 FINDING 3'S FOUR TESTS WERE DELETED BY ISSUE #48 — APPROVED IN ADVANCE, IN THE OPEN.
+=====================================================================================
+The four deleted tests were:
+  * test_an_off_topic_reply_can_be_retracted_and_re_asked
+  * test_a_crisis_reply_can_never_be_retracted
+  * test_a_real_coach_reply_cannot_be_retracted
+  * test_user_b_cannot_retract_user_as_reply
+
+`DELETE /check-ins/{id}/reply` existed for exactly one reason: to escape a wrong `off_topic`
+verdict. #48 removes the label, so there is nothing left to retract and the endpoint goes
+with it (#48 AC row 23 asserts it answers 405, not 404 — "the route is gone", not "the route
+declined").
+
+TWO OF THESE DELETIONS DESERVE A SENTENCE EACH, because deleting a safety test and deleting
+a cross-tenant test are exactly the moves this project does not allow to happen quietly:
+
+  * `test_a_crisis_reply_can_never_be_retracted` is replaced by something STRONGER, not by
+    nothing: #48 AC row 25 (tests/test_coach.py) asserts that no `delete from
+    public.coach_messages` statement exists anywhere in backend/app/, and AC row 24 revokes
+    the `delete` grant from `authenticated`. The old test proved one caller refused one
+    deletion; the new pair proves no caller can ask and the database would refuse anyway. A
+    crisis reply is un-re-rollable BY CONSTRUCTION.
+  * `test_user_b_cannot_retract_user_as_reply` was the mandatory cross-tenant row for the
+    DELETE endpoint (backend.md: every endpoint that takes a resource id owes one). It dies
+    with the endpoint, and no endpoint loses coverage: POST /check-ins/{id}/reply keeps its
+    own cross-tenant rows against the real database in tests/test_coach_db.py
+    (`test_row5_user_b_cannot_reply_to_user_as_check_in`, and row 6's zero-model-calls half).
+
+Approved before any implementation existed, as the "what dies" section of the v2 table:
+  table:    https://github.com/tobyliu2004/coach-bill/issues/48#issuecomment-5268060575
+  approval: https://github.com/tobyliu2004/coach-bill/issues/48#issuecomment-5268138951
 
 (Finding 2 — `_text_of` typing — has no runtime behaviour to assert; it is enforced by mypy.
 Finding for `_num` lives in tests/test_coach_context.py.)
@@ -31,9 +63,6 @@ from typing import Any
 import asyncpg
 import pytest
 from httpx import AsyncClient
-
-from app.auth import get_current_user_id
-from app.main import app
 
 requires_rls_db = pytest.mark.skipif(
     not os.getenv("RLS_DATABASE_URL"),
@@ -125,15 +154,9 @@ class _CountingCoach:
         return self.text
 
 
-def _sign_in_as(user_id: uuid.UUID, pool: asyncpg.Pool, gate: Any, coach: Any) -> None:
-    from app.ai.coach import get_coach
-    from app.ai.gate import get_gate
-    from app.deps import get_pool
-
-    app.dependency_overrides[get_current_user_id] = lambda: user_id
-    app.dependency_overrides[get_pool] = lambda: pool
-    app.dependency_overrides[get_gate] = lambda: gate
-    app.dependency_overrides[get_coach] = lambda: coach
+# `_sign_in_as` lived here and was used ONLY by finding 3's four retraction tests, which
+# #48 deleted (see the audit block in the module docstring). It goes with them — a helper
+# nothing calls is how a deleted feature keeps a foothold in the suite.
 
 
 # =====================================================================================
@@ -226,137 +249,6 @@ async def test_the_unique_index_is_what_makes_that_true() -> None:
         assert await _admin_replies(admin, a) == ["first reply"]
     finally:
         await _admin_delete_users(admin, a)
-        await close_pool(pool)
-
-
-# =====================================================================================
-# Finding 3 — retraction, and the safety rule inside it
-# =====================================================================================
-
-
-@requires_rls_db
-async def test_an_off_topic_reply_can_be_retracted_and_re_asked(client: AsyncClient) -> None:
-    from app.ai.coach import OFF_TOPIC_REPLY
-    from app.db.pool import close_pool, create_pool
-
-    admin = _require_admin_dsn()
-    a = uuid.uuid4()
-    pool = await create_pool(os.environ["RLS_DATABASE_URL"])
-    try:
-        await _admin_seed_users(admin, a)
-        check_in_id = await _seed_check_in(pool, a, "bench 135 4x8")
-
-        # The gate mislabels a real training check-in.
-        gate, coach = _CountingGate(label="off_topic"), _CountingCoach()
-        _sign_in_as(a, pool, gate, coach)
-        first = await client.post(f"/check-ins/{check_in_id}/reply")
-        assert first.status_code == 201
-        assert first.json()["content"] == OFF_TOPIC_REPLY
-        assert coach.calls == 0
-
-        retracted = await client.delete(f"/check-ins/{check_in_id}/reply")
-        assert retracted.status_code == 204
-        assert await _admin_replies(admin, a) == []
-
-        # Asking again reaches the coach this time — the whole point of the escape hatch.
-        gate.label = "coach"
-        again = await client.post(f"/check-ins/{check_in_id}/reply")
-        assert again.status_code == 201
-        assert again.json()["content"] == "Solid session — keep the bar path tight."
-        assert coach.calls == 1
-    finally:
-        await _admin_delete_users(admin, a)
-        await close_pool(pool)
-
-
-@requires_rls_db
-async def test_a_crisis_reply_can_never_be_retracted(client: AsyncClient) -> None:
-    """THE SAFETY ROW. If this ever goes green the wrong way, someone in genuine crisis can
-    re-roll past the hotlines until the gate hands them coaching instead."""
-    from app.ai.coach import CRISIS_REPLY
-    from app.db.pool import close_pool, create_pool
-
-    admin = _require_admin_dsn()
-    a = uuid.uuid4()
-    pool = await create_pool(os.environ["RLS_DATABASE_URL"])
-    try:
-        await _admin_seed_users(admin, a)
-        check_in_id = await _seed_check_in(pool, a, "i haven't eaten in three days")
-
-        gate, coach = _CountingGate(label="crisis"), _CountingCoach()
-        _sign_in_as(a, pool, gate, coach)
-        stored = await client.post(f"/check-ins/{check_in_id}/reply")
-        assert stored.json()["content"] == CRISIS_REPLY
-
-        refused = await client.delete(f"/check-ins/{check_in_id}/reply")
-
-        assert refused.status_code == 404, "a crisis reply must not be retractable"
-        assert await _admin_replies(admin, a) == [CRISIS_REPLY]  # still there, unchanged
-
-        # ...and asking again returns the SAME crisis reply, never a coaching one.
-        gate.label = "coach"
-        again = await client.post(f"/check-ins/{check_in_id}/reply")
-        assert again.status_code == 200
-        assert again.json()["content"] == CRISIS_REPLY
-        assert coach.calls == 0, "Sonnet must never run for a check-in the gate called crisis"
-    finally:
-        await _admin_delete_users(admin, a)
-        await close_pool(pool)
-
-
-@requires_rls_db
-async def test_a_real_coach_reply_cannot_be_retracted(client: AsyncClient) -> None:
-    """ "Give me a different answer" is a request to spend money again — that belongs behind
-    the per-user caps in #26, not behind a button anyone can hold down."""
-    from app.db.pool import close_pool, create_pool
-
-    admin = _require_admin_dsn()
-    a = uuid.uuid4()
-    pool = await create_pool(os.environ["RLS_DATABASE_URL"])
-    try:
-        await _admin_seed_users(admin, a)
-        check_in_id = await _seed_check_in(pool, a, "bench 135 4x8")
-        gate, coach = _CountingGate(), _CountingCoach()
-        _sign_in_as(a, pool, gate, coach)
-        await client.post(f"/check-ins/{check_in_id}/reply")
-
-        refused = await client.delete(f"/check-ins/{check_in_id}/reply")
-
-        assert refused.status_code == 404
-        assert await _admin_replies(admin, a) == ["Solid session — keep the bar path tight."]
-    finally:
-        await _admin_delete_users(admin, a)
-        await close_pool(pool)
-
-
-@requires_rls_db
-async def test_user_b_cannot_retract_user_as_reply(client: AsyncClient) -> None:
-    """The cross-tenant row for the NEW endpoint. Every endpoint taking a resource id owes
-    one (backend.md), and a DELETE is the worst one to get wrong."""
-    from app.ai.coach import OFF_TOPIC_REPLY
-    from app.db.pool import close_pool, create_pool
-
-    admin = _require_admin_dsn()
-    a, b = uuid.uuid4(), uuid.uuid4()
-    pool = await create_pool(os.environ["RLS_DATABASE_URL"])
-    try:
-        await _admin_seed_users(admin, a, b)
-        a_check_in = await _seed_check_in(pool, a, "A's private check-in")
-
-        gate, coach = _CountingGate(label="off_topic"), _CountingCoach()
-        _sign_in_as(a, pool, gate, coach)
-        await client.post(f"/check-ins/{a_check_in}/reply")
-        assert await _admin_replies(admin, a) == [OFF_TOPIC_REPLY]
-
-        # B tries to retract A's reply — an off-topic one, so content is not what saves it.
-        _sign_in_as(b, pool, gate, coach)
-        resp = await client.delete(f"/check-ins/{a_check_in}/reply")
-
-        assert resp.status_code == 404  # not 403 — never confirm the row exists
-        assert await _admin_replies(admin, a) == [OFF_TOPIC_REPLY]  # A's reply survives
-        assert await _admin_replies(admin, b) == []
-    finally:
-        await _admin_delete_users(admin, a, b)
         await close_pool(pool)
 
 
