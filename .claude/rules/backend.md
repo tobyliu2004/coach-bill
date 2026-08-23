@@ -103,6 +103,22 @@ A suite that goes green before the implementation is written is a **broken oracl
 news. Assert on specific expected values — an assertion that would pass against several
 different behaviors is not an assertion.
 
+**Prove the assertion can FAIL.** An assertion nobody has seen reject anything is a decoration.
+Two real cases from #48, both shipped inside an oracle commit and both caught only later:
+- `_substance_hits` matched bare substrings, so `"rest"` hit inside "inte**rest**ed" and a
+  polite content-free reply scored 3 and passed the two rows that exist to catch exactly that.
+- A file-walk asserting a string was absent from `frontend/src/` scanned **its own test file**,
+  which had to name the string to assert its absence. The branch could never go green.
+
+So: for a marker/substring assertion, run it against a must-fail example. For a file walk,
+assert it found a plausible number of files (`len(files) > 20`) — a walk that silently matched
+nothing passes every absence check while proving nothing.
+
+**Describe the category; don't enumerate examples.** A flat tuple of phrasings is the same bug
+as the prompt that shipped #48, one level up: three *correct* live replies went red because the
+list didn't contain "can't **store**". Prefer a rule over a list (an inability word within N
+words of an app-action word), and self-test it in both directions.
+
 Auth negative paths that must be covered: missing token, expired, wrong signature, algorithm
 confusion, wrong issuer, wrong audience.
 
