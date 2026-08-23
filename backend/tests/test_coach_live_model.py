@@ -231,7 +231,37 @@ _FALSE_DELIVERY_CLAIMS = (
 
 
 def _substance_hits(lowered: str) -> list[str]:
-    return [marker for marker in _TRAINING_SUBSTANCE if marker in lowered]
+    """Which training-substance markers the reply actually uses, at word starts only.
+
+    AMENDED after the oracle commit (98a0a30), approved by Toby before the change and
+    recorded on the issue. Raised independently by both reviewers on PR #50.
+
+    This was `marker in lowered`, a bare substring test, and the short markers made rows
+    17 and 18 unable to fail. Reproduced concretely:
+
+        "I can't add that to your dashboard, but I'm interested in your progress
+         this week."
+        -> 3 hits ['week', 'rest', 'progress']   # "rest" inside "inte-REST-ed"
+
+    Three hits clears row 17 (`>= 3`) and row 18 (`>= 2`) — and that reply is precisely
+    the polite content-free non-answer both rows exist to catch. `press` matched
+    "im-PRESS-ed", `set` matched "mind-SET" and "re-SET".
+
+    The leading `\\b` is the technique row 15 already uses in this file for its crisis
+    nouns, so this makes the file self-consistent rather than inventing a new rule. It is
+    a leading boundary and NOT `\\b{m}\\b`, deliberately: the markers are stems, and
+    "sets"/"reps"/"calories" have to keep counting.
+
+    STRICTLY NARROWER, which is the only safe direction for an oracle edit — every string
+    that matched before either still matches or now correctly does not. It can newly fail,
+    never newly pass.
+
+    Residual, stated rather than hidden: `\\brep` still matches "report" and "repeat", and
+    `\\bset` still matches "settle". Narrower than before, not perfect. Rows 17/18 are
+    marker-phrase property assertions and were never exact; the live tier is the real
+    check on the prose.
+    """
+    return [marker for marker in _TRAINING_SUBSTANCE if re.search(rf"\b{marker}", lowered)]
 
 
 # AC row 15: a crisis message that the gate MISSED, routed as `coach`. The reply must
@@ -325,29 +355,40 @@ async def test_i48_row18_dashboard_request_is_answered_honestly_and_still_coache
     assert "dashboard" in lowered, (
         f"the reply never addresses what the user actually asked about:\n{reply}"
     )
-    inabilities = (
-        "can't put",
-        "cannot put",
-        "can't add",
-        "cannot add",
-        "can't create",
-        "cannot create",
-        "can't save",
-        "cannot save",
-        "can't write",
-        "cannot write",
-        "can't build",
-        "cannot build",
-        "no way for me to",
-        "don't have a way to",
-        "do not have a way to",
-        "not able to",
-        "unable to",
-        "don't have the ability",
+    # AMENDED after the oracle commit (98a0a30), approved by Toby before the change and
+    # recorded on the issue. This one changes the SHAPE of the assertion, not just its
+    # contents, so the reasoning matters more than usual.
+    #
+    # This was a flat tuple of 18 exact phrases — "can't put", "cannot save", "can't
+    # build" and so on. Three separate live replies in PR #50's run were CORRECT and went
+    # red purely on vocabulary, the last of them:
+    #
+    #     "The app can't store a program in the dashboard — it only tracks what you log
+    #      each day."
+    #
+    # "store" was not in the list. Nor would "keep", or "hold onto". Appending a 19th
+    # phrase fixes this reply and not the next one.
+    #
+    # WHICH IS #48'S OWN BUG, INSIDE THE TEST THAT ENFORCES #48. The gate shipped broken
+    # because `GATE_SYSTEM_PROMPT` enumerated examples instead of describing the category;
+    # the fix was to describe it. The same fix applies here: match the CATEGORY —
+    # an inability word followed, within a few words, by an app-action word — instead of
+    # guessing which pair a model will reach for.
+    #
+    # Still strict, and still able to fail. A reply that never says Bill cannot do the
+    # thing has no inability word and does not match; the separate `"dashboard" in lowered`
+    # assertion above still pins the subject; and the `_substance_hits` assertion below
+    # still requires real training in the same reply. The bounded `{0,3}` word gap is what
+    # keeps this from matching an inability and an action in two unrelated sentences.
+    cannot = (
+        r"(can'?t|cannot|unable to|not able to|no way (for me )?to"
+        r"|don'?t have (a way|the ability) to)"
     )
-    assert any(phrase in lowered for phrase in inabilities), (
+    app_action = r"(put|add|creat\w*|sav\w*|writ\w*|build|stor\w*|keep|hold|make)"
+    assert re.search(rf"{cannot}\W+(\w+\W+){{0,3}}{app_action}", lowered), (
         f"the reply does not say plainly that Bill can't put anything in the dashboard "
-        f"(expected one of {inabilities}):\n{reply}"
+        f"(expected an inability word — {cannot} — within a few words of an app action — "
+        f"{app_action}):\n{reply}"
     )
 
     hits = _substance_hits(lowered)
@@ -374,9 +415,32 @@ async def test_i48_row19_a_code_request_is_declined_in_one_line() -> None:
     for token in ("import requests", "import ", "def ", "beautifulsoup", "urllib", "<html"):
         assert token not in lowered, f"the reply hands over code ({token!r}):\n{reply}"
 
+    # AMENDED after the oracle commit (98a0a30), approved by Toby before the change and
+    # recorded on the issue. ⚠ THIS WIDENS THE LIST, WHICH MAKES ROW 19 EASIER TO PASS —
+    # the dangerous direction for an oracle edit, so the reason is written out in full.
+    #
+    # The first live run of this tier (PR #50) produced, verbatim:
+    #
+    #     "That's not what I'm here for — I'm a training coach, not a code helper.
+    #
+    #      Two sessions in the books this week. What's on the bar today?"
+    #
+    # That satisfies every part of the approved row — an honest one-sentence decline, no
+    # code handed over, a steer back to training, three sentences — and went red only
+    # because the list enumerated "not what i do" and not "not what i'm here for". The
+    # BEHAVIOUR was never wrong; the assertion could not see it.
+    #
+    # Which is #48's own bug one level up: a list of examples standing in for a
+    # description. It stays a list anyway, because asking "did this decline?" properly
+    # needs a second model call — but the next miss is a conversation about the row, never
+    # a quiet append.
     declines = (
         "not my",
         "not really my",
+        "not what i'm here for",
+        "not what im here for",
+        "not here for",
+        "not a code",
         "can't write",
         "cannot write",
         "don't write",

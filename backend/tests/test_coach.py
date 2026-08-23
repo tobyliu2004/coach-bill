@@ -54,8 +54,14 @@ commit on `fix/48-gate-asks-one-question` and none of it after:
     exactly ("coach", "crisis") and `"off_topic"` moves into the junk list (#48 AC row 8).
   * AMENDED — `test_row14_unknown_label_is_treated_as_a_gate_failure`: parametrised over
     two out-of-range labels, `"off_topic"` among them (#48 AC row 9).
-  * AMENDED — `test_row23_every_coach_statement_is_owner_scoped`: three statements become
-    two, because `delete_reply_with_content` is gone (#48 AC row 26).
+  * NOT AMENDED — `test_row23_every_coach_statement_is_owner_scoped` still asserts THREE
+    statements. #48 AC row 26 as drafted said three become two; that was a table bug,
+    raised by `test-author` before any implementation and ruled on by Toby in the open:
+    https://github.com/tobyliu2004/coach-bill/issues/48#issuecomment-5269456376
+    This test never counted `delete_reply_with_content` (it arrived in PR #47's review
+    round, after #21's oracle froze), so deleting that function removes an UNCOUNTED
+    statement and the count stays 3. Row 26 is reclassified from a behaviour #48 changes
+    to an invariant it must not break. See the comment on the assertion itself.
   * ADDED — #48 AC rows 20, 21, 22, 23, 25 (section G at the bottom).
 
 These edits are legitimate ONLY because Toby approved each of them BEFORE any
