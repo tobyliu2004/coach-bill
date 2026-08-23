@@ -1252,12 +1252,35 @@ _FRONTEND_SRC = Path(__file__).resolve().parents[2] / "frontend" / "src"
 
 
 def _source_files(root: Path, suffixes: tuple[str, ...]) -> list[Path]:
-    """Every source file under `root`, ignoring caches and build output."""
+    """Every SHIPPED source file under `root`, ignoring caches, build output and tests.
+
+    AMENDED after the oracle commit (98a0a30), approved by Toby before the fix, recorded
+    on the issue: https://github.com/tobyliu2004/coach-bill/issues/48
+
+    Row 22 asks whether `off_topic` survives in shipped source. The backend half gets that
+    for free — `backend/app/` and `backend/tests/` are different trees — but vitest
+    colocates frontend tests in `src/`, so the scan also read
+    `frontend/src/lib/coachRemovals.test.ts`: the row 27/28 oracle file, which cannot
+    assert `OFF_TOPIC_REPLY` is absent without naming it. Unfixed, the branch could never
+    go green without touching an oracle test.
+
+    That this was an oversight and not the approved intent is provable from the oracle
+    commit's own red evidence, which reported "23 off_topic lines (19 backend, 4
+    frontend)" in `ai/coach.py`, `ai/gate.py`, `db/coach.py`, `routes/coach.py`,
+    `services/coach.py` and `coachView.ts` — all implementation. The tree at 98a0a30
+    actually held 28: those 23 plus 5 in this scan's own new test file, uncounted.
+
+    So this is a narrowing to what row 22 always meant, not a weakening: all 23 counted
+    lines are still guarded, and the count assertion below still proves the walk found a
+    real tree.
+    """
     ignored = {"__pycache__", "node_modules", "dist", ".venv"}
     return [
         path
         for path in sorted(root.rglob("*"))
-        if path.suffix in suffixes and not ignored & set(path.parts)
+        if path.suffix in suffixes
+        and not ignored & set(path.parts)
+        and not path.name.endswith((".test.ts", ".test.tsx"))
     ]
 
 
