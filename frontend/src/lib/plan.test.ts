@@ -62,6 +62,13 @@ const PLAN: Plan = {
       day_date: '2026-08-24',
       week_number: 1,
       focus: 'upper push',
+      // 🔓 AMENDMENT 5 ON ISSUE #51, approved before the edit:
+      //   https://github.com/tobyliu2004/coach-bill/issues/51#issuecomment-5389384649
+      // Row 13 requires `PlanDayOut` to carry `logged`, and the backend oracle asserts it;
+      // the interface handed to test-author omitted the field (a briefing error, not a
+      // test-author one), so this fixture built a `PlanDay` the API cannot actually emit.
+      // DIRECTION: NEITHER — nothing in this file reads `logged` and no assertion changes.
+      logged: false,
       items: [
         {
           id: '3f6d5a12-0000-4000-8000-000000000000',
