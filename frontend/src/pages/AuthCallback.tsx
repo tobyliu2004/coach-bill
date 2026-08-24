@@ -47,6 +47,49 @@ function AuthCallback() {
     )
   }
 
+  // Signed in, but the profile fetch failed for a non-auth reason.
+  //
+  // THIS IS THE #46 DEAD END. The session is fine — it is the profile that failed — so
+  // `status` is 'signedIn' and the 6s escape above, gated on `status !== 'signedIn'`, is
+  // disabled by the very condition that caused the wait. `resolveDestination` correctly
+  // returns null (profile null means "hold position until we know where they belong"), and
+  // nothing rendered `profileError` on this path, so the user sat on "Signing you in…"
+  // forever with no error, no retry and no way back. Every piece was defensible; the
+  // composition was a trap.
+  //
+  // Ordered AFTER the link-error branch on purpose: an expired link explains itself better
+  // than a generic profile failure, and #46 row 6 pins that precedence.
+  // `!profileLoading` matters: while a retry is in flight, `profileError` still describes the
+  // LAST attempt, and showing the failure screen through the whole retry would render the
+  // in-flight state as the failure state — this ticket's own bug, one level down. Falling
+  // through to the waiting line is what makes "Try again" visibly do something.
+  if (auth.status === 'signedIn' && auth.profileError && !auth.profileLoading) {
+    return (
+      <main className="flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center">
+        <p role="alert" className="max-w-sm text-sm leading-relaxed text-fg-muted">
+          You&rsquo;re signed in, but we couldn&rsquo;t load your profile.
+        </p>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => void auth.refreshProfile()}
+            className="rounded-control border border-edge-strong px-4 py-2 text-sm font-semibold text-fg transition-colors duration-150 hover:border-fg-muted"
+          >
+            Try again
+          </button>
+          {/* The second way out, and it is not decoration: if retrying keeps failing, the
+              only remaining exit used to be editing the URL by hand. */}
+          <Link
+            to="/login"
+            className="rounded-control px-4 py-2 text-sm text-fg-muted transition-colors duration-150 hover:text-fg"
+          >
+            Back to sign in
+          </Link>
+        </div>
+      </main>
+    )
+  }
+
   return (
     <main className="flex min-h-dvh items-center justify-center px-6">
       <p className="font-mono text-sm text-fg-muted">Signing you in…</p>
