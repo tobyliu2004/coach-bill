@@ -32,6 +32,26 @@ async def get_user_timezone(pool: asyncpg.Pool, user_id: UUID) -> str | None:
         return tz
 
 
+async def get_user_goal(pool: asyncpg.Pool, user_id: UUID) -> str | None:
+    """The caller's stated goal, or None if they never set one.
+
+    None is a LEGITIMATE answer, not an error (#51 row 10): no goal is the normal state for
+    a new user, and a plan generated from their history alone is a correct plan. It is
+    stored on `plans.goal_snapshot` as NULL — never `""`, never "no goal set" — so the
+    screen can tell "they had no goal" from "their goal was blank".
+
+    A SNAPSHOT is the point of reading it here at all: a plan records the goal it was
+    written for, so editing the profile next month does not silently rewrite what last
+    month's program was aiming at.
+    """
+    async with authed_conn(pool, user_id) as conn:
+        goal: str | None = await conn.fetchval(
+            "select goal from public.profiles where id = $1",
+            user_id,
+        )
+        return goal
+
+
 async def get_user_weight_unit(pool: asyncpg.Pool, user_id: UUID) -> str | None:
     """The caller's preferred weight unit ('lb' or 'kg'), or None (missing row).
 
