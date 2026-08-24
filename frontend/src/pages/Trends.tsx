@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../auth/useAuth'
 import { AppShell } from '../components/AppShell'
+import { Skeleton } from '../components/Skeleton'
 import { BarChart } from '../components/BarChart'
 import { Sparkline } from '../components/Sparkline'
 import type { Trends as TrendsPayload } from '../lib/api'
@@ -85,18 +86,34 @@ function Trends() {
           <span className="font-mono text-xs tabular-nums text-fg-muted">last {days} days</span>
         </div>
 
-        {/* load-failed and empty must stay distinct: "you have no data" when the fetch
-            actually failed reads as data loss. Both states come from `trendsView`. */}
+        {/* loading, load-failed and empty must stay distinct: "you have no data" reads as data
+            loss when the fetch actually failed, and equally when it is simply still running
+            (#43) — which on this screen is the slowest fetch in the app. All four states come
+            from `trendsView`; `data-state` is the seam a test asserts the category on. */}
+        {view.kind === 'loading' && (
+          <div data-state="loading">
+            {/* Panel-height blocks: what lands here is a stack of charts, not a list of rows. */}
+            <Skeleton label="Loading your trends" count={2} shape="panel" />
+          </div>
+        )}
+
         {view.kind === 'load-failed' && (
-          <p role="alert" className="font-mono text-xs text-fg-muted">
-            Couldn’t load your trends — refresh to try again.
-          </p>
+          // The alert lives INSIDE the state slot rather than on it: the state seam says which
+          // branch rendered, the role says what kind of thing it is, and they are separate
+          // questions. Collapsing them onto one node also hides the alert from a scoped
+          // `within(state)` query, which is how a test meant to prove the error is announced
+          // would instead prove nothing.
+          <div data-state="load-failed">
+            <p role="alert" className="font-mono text-xs text-fg-muted">
+              Couldn’t load your trends — refresh to try again.
+            </p>
+          </div>
         )}
 
         {/* Scoped to the WINDOW, not the account — the same reason History's is. We only
             know this window is empty; we know nothing about the year before it. */}
         {view.kind === 'empty' && (
-          <div className="flex flex-col items-start gap-3">
+          <div data-state="empty" className="flex flex-col items-start gap-3">
             <p className="font-display text-display-sm text-fg">
               Nothing to chart in the last {days} days.
             </p>
@@ -107,7 +124,13 @@ function Trends() {
           </div>
         )}
 
-        {view.kind === 'trends' && <Dashboard trends={view.trends} unit={unit} />}
+        {/* Wrapped only to carry the state seam — Dashboard's own root is a block-level
+            flex column, so this changes nothing about the layout. */}
+        {view.kind === 'trends' && (
+          <div data-state="content">
+            <Dashboard trends={view.trends} unit={unit} />
+          </div>
+        )}
       </main>
     </AppShell>
   )
