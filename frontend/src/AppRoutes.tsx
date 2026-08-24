@@ -16,6 +16,8 @@ const Login = lazy(() => import('./pages/Login'))
 const AppHome = lazy(() => import('./pages/AppHome'))
 const History = lazy(() => import('./pages/History'))
 const Trends = lazy(() => import('./pages/Trends'))
+const Plan = lazy(() => import('./pages/Plan'))
+const Diet = lazy(() => import('./pages/Diet'))
 
 export function AppRoutes() {
   return (
@@ -31,6 +33,8 @@ export function AppRoutes() {
             <Route path="/app" element={<AppHome />} />
             <Route path="/history" element={<History />} />
             <Route path="/trends" element={<Trends />} />
+            <Route path="/plan" element={<Plan />} />
+            <Route path="/diet" element={<Diet />} />
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

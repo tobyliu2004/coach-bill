@@ -153,6 +153,57 @@ export interface TrendsNutritionPoint {
   fat_g: string
 }
 
+/**
+ * ONE PLANNED SET. Mirrors the backend's `PlanItemOut`, which mirrors `plan_items`, which
+ * mirrors `workout_sets` — one row per set all the way down, so planned-vs-actual stays a
+ * join rather than a parser.
+ */
+export interface PlanItem {
+  id: string
+  exercise_id: string
+  /** The CANONICAL catalog name — aliases were resolved server-side at write time. */
+  exercise_name: string
+  set_number: number
+  reps: number
+  /** A STRING, or null for a movement with no external load. Never 0 — 0 would say the
+   *  user is planned to lift nothing. Parsed once, deliberately, via `parseNumeric`. */
+  weight_kg: string | null
+}
+
+export interface PlanDay {
+  id: string
+  day_date: string
+  week_number: number
+  /** Never empty, and a rest day says rest. A day whose every item was dropped keeps its
+   *  training focus rather than being relabelled — #51 row 4. */
+  focus: string
+  /** Did the user actually train on this date? COMPUTED server-side from their own
+   *  workouts (#51 row 13), never stored, so it cannot go stale. */
+  logged: boolean
+  items: PlanItem[]
+}
+
+export interface Plan {
+  id: string
+  status: string
+  starts_on: string
+  ends_on: string
+  weeks: number
+  /** NULL is legitimate — no goal is the normal state for a new user (#51 row 10). Never
+   *  `""`, so "they had no goal" stays distinguishable from "their goal was blank". */
+  goal_snapshot: string | null
+  progression_note: string
+  /** Every measure crosses the wire as a STRING: Postgres `numeric` -> Pydantic `Decimal`
+   *  -> a JSON string, because JSON's only number type is a float and a calorie target is
+   *  not something a parser gets to round. `lib/plan.ts` parses them once. */
+  calories_target: string
+  protein_g_target: string
+  carbs_g_target: string
+  fat_g_target: string
+  created_at: string
+  days: PlanDay[]
+}
+
 export interface Trends {
   /** The window the SERVER resolved. The chart's axis is laid out from these, so the
    *  client never recomputes "today" — the drift issue #40 is about. Present even when
@@ -272,6 +323,34 @@ export function createApi({
         // user gets the real error rather than a generic abort.
         signal: AbortSignal.timeout(70_000),
       })
+    },
+    /**
+     * Generate and store a program for the caller.
+     *
+     * NO CLIENT TIMEOUT, unlike `requestReply`. The server's own planner budget is 60s and
+     * a plan is a bigger generation than a reply; the screen shows "Bill is writing your
+     * plan…" and the button is withheld while it runs (row 24), so there is no way for the
+     * user to pile on requests while they wait.
+     *
+     * Not idempotent, and deliberately not pretending to be: a second call generates a
+     * second plan and archives the first. The DATABASE guarantees only one is active
+     * (a partial unique index), and two CONCURRENT calls converge on the same plan — but
+     * they each spend a model call, which is why the view withholds the button rather than
+     * relying on the server to absorb a double-click.
+     */
+    createPlan(weeks: number): Promise<Plan> {
+      return request<Plan>('/plans', { method: 'POST', body: JSON.stringify({ weeks }) })
+    },
+    /**
+     * The caller's active plan.
+     *
+     * Throws `ApiError` with status 404 when there is none — which is a NORMAL state, not a
+     * failure, and the screen must tell the two apart. `planView` is where that decision
+     * lives: a 404 is `empty` (you have no plan yet), any other failure is `load-failed`
+     * (with a retry). Collapsing them is #43's bug and rows 22/23 exist to stop it.
+     */
+    getCurrentPlan(): Promise<Plan> {
+      return request<Plan>('/plans/current')
     },
     deleteCheckIn(id: string): Promise<void> {
       return request<void>(`/check-ins/${id}`, { method: 'DELETE' })
