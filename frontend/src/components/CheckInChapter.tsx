@@ -5,16 +5,16 @@ import * as m from 'motion/react-m'
 /**
  * Scroll-scrubbed story chapter (the meuze pattern): a tall section with a
  * sticky full-height stage; scroll progress drives three beats —
- * 01 SPEAK (transcript types) → 02 LOGGED (rows extract, numbers roll) →
+ * 01 TYPE (the check-in types in) → 02 LOGGED (rows extract, numbers roll) →
  * 03 COACHED (Bill replies). All per-frame updates are imperative DOM writes
  * via MotionValues; React never re-renders during scroll.
  */
 
-const TRANSCRIPT = '“Hey Coach, here’s my numbers for the day — bench one-thirty-five, military press one-oh-five, squats two-twenty-five…”'
+const TRANSCRIPT = 'bench felt easy today, 135 for 4 sets of 8; military press 105, three sixes; squats 225 5x5'
 const REPLY = 'Logged. Bench moved fast today — we go 140 next session. Press is stalling at 105, so Friday we add a back-off set. Squats looked strong.'
 
 const BEATS = [
-  { n: '01', label: 'speak' },
+  { n: '01', label: 'type' },
   { n: '02', label: 'logged' },
   { n: '03', label: 'coached' },
 ] as const
