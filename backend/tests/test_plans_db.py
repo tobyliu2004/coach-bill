@@ -553,8 +553,7 @@ async def test_row16_updating_calories_target_is_refused_by_the_database(
         with pytest.raises(asyncpg.exceptions.InsufficientPrivilegeError):
             async with authed_conn(pool, a) as conn:
                 await conn.execute(
-                    "update public.plans set calories_target = 900 "
-                    "where id = $1 and user_id = $2",
+                    "update public.plans set calories_target = 900 where id = $1 and user_id = $2",
                     plan_id,
                     a,
                 )
@@ -614,9 +613,38 @@ async def test_row17_every_plan_table_has_a_not_null_cascading_user_id(table: st
         )
         assert fk is not None, f"public.{table}.user_id has no foreign key"
         assert fk["parent"] == "auth.users"
-        assert fk["confdeltype"] == "c", (  # 'c' = ON DELETE CASCADE
+
+        # 🔓 AMENDED BY AMENDMENT 4 ON ISSUE #51, APPROVED BEFORE THE EDIT.
+        #
+        #   amendment: https://github.com/tobyliu2004/coach-bill/issues/51#issuecomment-5389384649
+        #
+        # ⚠️ DIRECTION: WIDENING — THIS CAN NEWLY PASS. Naming it is the point.
+        #
+        # As committed, this line read `assert fk["confdeltype"] == "c"`. `confdeltype` is
+        # Postgres's `"char"` type and **asyncpg returns it as bytes**, so the comparison was
+        # bytes-against-str: False for every possible value, against every migration that
+        # could ever be written. It was UNSATISFIABLE BY CONSTRUCTION — #48's row-22 trap
+        # wearing a different hat, and the failure mode is worse than a wrong assertion,
+        # because it makes the branch un-mergeable rather than the code wrong.
+        #
+        # The EXPECTATION is unchanged, byte for byte: `user_id` must be ON DELETE CASCADE.
+        # Only the type coercion moved. But an assertion that could only fail can now pass,
+        # and that is the dangerous direction, so it is written down here rather than in a
+        # commit message nobody re-reads.
+        #
+        # Defensible because the property is proven by EXECUTING it, not just reading the
+        # catalog: `test_row17_deleting_the_user_cascades_to_every_plan_table` deletes the
+        # `auth.users` row and asserts all three tables are empty afterwards. That test is
+        # untouched. This one is corroboration; that one is the proof.
+        #
+        # Normalised rather than compared to `b"c"`, so the assertion states the Postgres
+        # fact ('c' means ON DELETE CASCADE) instead of an asyncpg representation detail
+        # that a driver upgrade could silently change back.
+        on_delete = fk["confdeltype"]
+        on_delete = on_delete.decode() if isinstance(on_delete, bytes) else str(on_delete)
+        assert on_delete == "c", (  # 'c' = ON DELETE CASCADE
             f"public.{table}.user_id does not cascade on user delete — deleting a user "
-            "would orphan their plan rows (schema.md)"
+            f"would orphan their plan rows (schema.md). confdeltype={on_delete!r}"
         )
     finally:
         await conn.close()
