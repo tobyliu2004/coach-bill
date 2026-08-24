@@ -364,7 +364,28 @@ class _FakeDb:
         if q.startswith("delete") and any(f"public.{t}" in q for t in _PLAN_TABLES):
             return self._delete(q, args)
 
-        if "public.exercises" in q:
+        # 🔓 AMENDED BY AMENDMENT 7 ON ISSUE #51, APPROVED BEFORE THE EDIT.
+        #
+        #   amendment: https://github.com/tobyliu2004/coach-bill/issues/51#issuecomment-5389671955
+        #
+        # ⚠️ DIRECTION: WIDENING — THIS CAN NEWLY PASS, because the affected tests could not
+        # pass at all before it. NO ASSERTION CHANGED; this is the fake's ROUTER.
+        #
+        # As committed, this branch tested only `"public.exercises" in q` and sat ABOVE the
+        # plan-table read. `db/plans.py` reads its items with a join to the catalog for
+        # `exercise_name` — correct SQL, and exercised against a real database by
+        # tests/test_plans_db.py — but here it landed in this name->id lookup, found no
+        # string argument, returned [], and every day came back with ZERO ITEMS.
+        #
+        # That this is a MACHINERY gap rather than a defect in the code under test is
+        # visible in this fake's own `_insert`, which primes `exercise_name` onto every
+        # plan_items row — which only matters if a read is expected to surface it.
+        # `_FakeSqlError`'s docstring names this category exactly.
+        #
+        # The name->id lookup is what `resolve_exercise` needs, and it still runs for a
+        # statement that names ONLY the catalog. A statement that also names a plan table is
+        # a plan read that happens to join the catalog, and belongs below.
+        if "public.exercises" in q and not any(f"public.{t}" in q for t in _PLAN_TABLES):
             name = next((a for a in args if isinstance(a, str)), "")
             found = CATALOG.get(name.strip().lower())
             return [{"id": found}] if found is not None else []
@@ -680,7 +701,6 @@ def _sign_in(
     `SonnetPlanner` and dial Anthropic. Every route test here goes through this helper.
     """
     from app.ai.planner import get_planner
-
     from app.deps import get_pool
 
     pool = FakePool(db if db is not None else _FakeDb())
@@ -771,6 +791,7 @@ async def test_row1_four_weeks_is_201_with_28_days_each_with_a_focus(
 # not a bug to log, it is advice that must never reach a user.
 def test_row2_plan_template_rejects_calories_below_1200() -> None:
     import pydantic
+
     from app.schemas.plans import PlanTemplate
 
     with pytest.raises(pydantic.ValidationError):
@@ -856,7 +877,18 @@ async def test_row4_a_fully_unresolvable_day_stores_empty_and_stays_a_training_d
     push_day = next(d for d in body["days"] if d["focus"] == "push")
     assert push_day["items"] == []  # stored, with zero items
     assert len(_stored(pool, "plan_days")) == 7
-    assert len(_stored(pool, "plan_items")) == 3  # row, squat, bench — the push day wrote none
+    # 🔓 AMENDED BY AMENDMENT 8 ON ISSUE #51, APPROVED BEFORE THE EDIT.
+    #   amendment: https://github.com/tobyliu2004/coach-bill/issues/51#issuecomment-5389671955
+    #
+    # ⚠️ DIRECTION: WIDENING — THIS CAN NEWLY PASS. As committed this read `== 3`, with the
+    # comment "row, squat, bench". That counted distinct movement NAMES and missed that
+    # `back squat` appears on TWO days, so 3 was unreachable and this line could only fail.
+    # The four resolvable items in this week are: barbell row (pull), back squat (legs),
+    # bench press (upper), back squat (lower). The push day's two are both unresolvable.
+    #
+    # Row 4's actual subject is untouched and is asserted above: the push day stores with
+    # ZERO items and keeps its focus "push" instead of being relabelled "rest".
+    assert len(_stored(pool, "plan_items")) == 4, _stored(pool, "plan_items")
 
 
 # AC row 5: the model call raises or times out -> 503, nothing stored, retryable. FAILS
@@ -1439,7 +1471,6 @@ async def test_the_new_endpoints_are_401_without_a_token(
     from types import SimpleNamespace
 
     from app.ai.planner import get_planner
-
     from app.auth import get_jwks_client
     from app.deps import get_pool
 

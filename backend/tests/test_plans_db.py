@@ -219,7 +219,6 @@ class _RecordingPlanner:
 def _sign_in_as(user_id: uuid.UUID, pool: asyncpg.Pool, planner: Any) -> None:
     """Wire the ASGI app to a REAL pool and a verified identity, with a fake planner."""
     from app.ai.planner import get_planner
-
     from app.deps import get_pool
 
     app.dependency_overrides[get_current_user_id] = lambda: user_id
