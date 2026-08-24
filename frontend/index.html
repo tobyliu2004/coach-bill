@@ -6,7 +6,29 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Coach Bill — your AI fitness coach. Type one line after you train; get it logged, tracked, and coached by someone who remembers every session." />
     <meta name="theme-color" content="#0d0d10" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="canonical" href="https://coachbill.fit/" />
     <title>Coach Bill — AI fitness coach</title>
+
+    <!-- Social preview. index.html is the whole SPA's entry, so /app and /login
+         share this card too: correct here, because the card describes the
+         product, not the page. URLs are ABSOLUTE because scrapers don't resolve
+         relative ones — which also means *.pages.dev previews point at the
+         production image. og.png is generated, not drawn: see
+         frontend/src/dev/OgCard.tsx. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://coachbill.fit/" />
+    <meta property="og:site_name" content="Coach Bill" />
+    <meta property="og:title" content="Coach Bill — the coach who remembers every rep." />
+    <meta property="og:description" content="Type one line after you train. Bill logs it, tracks it, and coaches you like he's known you for months — because he has." />
+    <meta property="og:image" content="https://coachbill.fit/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="The headline &quot;The coach who remembers every rep.&quot; beside a lifter rendered as dense scanlines of monospaced glyphs." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Coach Bill — the coach who remembers every rep." />
+    <meta name="twitter:description" content="Type one line after you train. Bill logs it, tracks it, and coaches you like he's known you for months — because he has." />
+    <meta name="twitter:image" content="https://coachbill.fit/og.png" />
   </head>
   <body>
     <div id="root"></div>
