@@ -18,13 +18,21 @@ export function ProtectedRoute() {
   // whether the app was loading or broken. Same bug family as the rest of #46 — an in-flight
   // state rendered as something else.
   //
-  // `profileLoading` is the explicit signal and is what we want to read; the structural clause
-  // stays as the seatbelt for the sliver before the fetch effect has started, where nothing is
-  // in flight yet but there is still no profile to render a screen from.
+  // `auth.profile === null` GATES THE WHOLE CLAUSE, and that is not incidental: this screen is
+  // only correct when there is nothing to render from. `profileLoading` on its own would also
+  // fire for a REFRESH of an already-loaded profile — `Onboarding.tsx:42` does exactly that
+  // after submitting — and would replace the live screen with a loading page mid-submit,
+  // unmounting the form. Blank the app only when the alternative is a blank app.
+  //
+  // Given no profile: `profileLoading` covers a retry that is in flight (where `profileError`
+  // still describes the previous attempt), and `!profileError` covers the sliver before the
+  // fetch effect has started, where nothing is in flight yet and there is still nothing to
+  // show. Together they mean "no profile, and this is not a settled failure".
   if (
     auth.status === 'loading' ||
-    auth.profileLoading ||
-    (auth.status === 'signedIn' && auth.profile === null && !auth.profileError)
+    (auth.status === 'signedIn' &&
+      auth.profile === null &&
+      (auth.profileLoading || !auth.profileError))
   ) {
     return (
       <main className="flex min-h-dvh items-center justify-center px-6">
