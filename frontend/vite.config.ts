@@ -6,10 +6,25 @@ import tailwindcss from '@tailwindcss/vite'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  // Unit tests are pure-logic only (auth guards, api wrapper) — node env, no DOM
-  // emulation. Component/jsdom testing can be added when there's UI worth it.
+  // Two tiers, split by extension so neither can silently swallow the other's files.
+  //
+  //   unit (.test.ts)  — pure logic: view functions, auth guards, the api wrapper. node env.
+  //   dom  (.test.tsx) — what those decisions actually RENDER. jsdom.
+  //
+  // The dom tier exists because #18/#39/#43/#46 were all the same bug: a decision layer that
+  // keeps "loading", "failed" and "empty" distinct, and a presentation layer that collapses
+  // them back into one blank screen. The logic tier can't see that — it never mounts anything.
+  // `extends: true` inherits the plugins above, so JSX compiles in both.
   test: {
-    include: ['src/**/*.test.ts'],
-    environment: 'node',
+    projects: [
+      {
+        extends: true,
+        test: { name: 'unit', include: ['src/**/*.test.ts'], environment: 'node' },
+      },
+      {
+        extends: true,
+        test: { name: 'dom', include: ['src/**/*.test.tsx'], environment: 'jsdom' },
+      },
+    ],
   },
 })
