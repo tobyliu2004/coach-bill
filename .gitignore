@@ -23,6 +23,12 @@ node_modules/
 dist/
 .vite/
 
+# Design references — other people's screenshots, and this repo is public.
+# Allowlist shape on purpose: a new binary type can't sneak in by extension.
+design/refs/*
+!design/refs/NOTES.md
+!design/refs/.gitkeep
+
 # OS / editor
 .DS_Store
 .idea/
