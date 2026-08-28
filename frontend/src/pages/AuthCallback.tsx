@@ -59,11 +59,18 @@ function AuthCallback() {
   //
   // Ordered AFTER the link-error branch on purpose: an expired link explains itself better
   // than a generic profile failure, and #46 row 6 pins that precedence.
-  // `!profileLoading` matters: while a retry is in flight, `profileError` still describes the
-  // LAST attempt, and showing the failure screen through the whole retry would render the
-  // in-flight state as the failure state — this ticket's own bug, one level down. Falling
-  // through to the waiting line is what makes "Try again" visibly do something.
-  if (auth.status === 'signedIn' && auth.profileError && !auth.profileLoading) {
+  // THE RETRY STAYS ON THIS SCREEN, and that is the whole point of the branch.
+  //
+  // An earlier cut gated this on `!auth.profileLoading`, so pressing "Try again" fell through
+  // to the bare "Signing you in…" line below — which has no button and no link. `getMe` has no
+  // `AbortSignal.timeout` (only `requestReply` does), so against a hung socket that promise
+  // never settles and the 6s escape is disabled by `status !== 'signedIn'`. The button added
+  // to fix a dead end led straight into another one. Both PR reviewers caught it independently.
+  //
+  // Feedback comes from the CONTROL instead: the button disables and relabels while the
+  // request is open, and "Back to sign in" never leaves the screen. Approved row 10 — "there
+  // is always a way out" — has to hold in the in-flight state too, not just the settled one.
+  if (auth.status === 'signedIn' && auth.profileError) {
     return (
       <main className="flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center">
         <p role="alert" className="max-w-sm text-sm leading-relaxed text-fg-muted">
@@ -72,10 +79,11 @@ function AuthCallback() {
         <div className="flex items-center gap-3">
           <button
             type="button"
+            disabled={auth.profileLoading}
             onClick={() => void auth.refreshProfile()}
-            className="rounded-control border border-edge-strong px-4 py-2 text-sm font-semibold text-fg transition-colors duration-150 hover:border-fg-muted"
+            className="rounded-control border border-edge-strong px-4 py-2 text-sm font-semibold text-fg transition-colors duration-150 hover:border-fg-muted disabled:opacity-50 disabled:hover:border-edge-strong"
           >
-            Try again
+            {auth.profileLoading ? 'Trying…' : 'Try again'}
           </button>
           {/* The second way out, and it is not decoration: if retrying keeps failing, the
               only remaining exit used to be editing the URL by hand. */}

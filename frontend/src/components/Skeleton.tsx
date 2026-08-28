@@ -19,10 +19,13 @@
  * without asking for attention. No new colors: `bg-surface` + `border-edge` are the same card
  * treatment the real rows use, so the placeholder is literally the shape of what replaces it.
  *
- * ACCESSIBILITY. `role="status"` (a polite live region) plus a real `aria-label`, so a screen
- * reader is told what is loading rather than meeting an anonymous grey box. The label is
- * required, not optional — an unnamed status region is the a11y equivalent of the bug this
- * component was written to fix.
+ * ACCESSIBILITY. `role="status"` is a polite live region, and a live region announces its
+ * CONTENT, not its `aria-label`. An earlier cut had the label only as an attribute over a set
+ * of empty divs — which gives the region an accessible name a test can assert, while a screen
+ * reader still hears nothing. The label is therefore rendered as visually-hidden text INSIDE
+ * the region, and the attribute is kept so the name is right whichever way it is queried. The
+ * label is required, not optional: an unnamed status region is the a11y equivalent of the bug
+ * this component exists to fix.
  */
 
 /** The card block itself: the same surface, border and radius as the rows it stands in for. */
@@ -55,6 +58,7 @@ export function Skeleton({ label, count = 3, shape = 'row' }: SkeletonProps) {
       data-component="skeleton"
       className="flex flex-col gap-2"
     >
+      <span className="sr-only">{label}</span>
       {Array.from({ length: count }, (_, i) => (
         // Index keys are correct here and only here: these blocks are identical, ordered, and
         // never reordered or keyed to data — there is no identity for React to preserve.
