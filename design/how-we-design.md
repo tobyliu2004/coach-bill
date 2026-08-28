@@ -60,7 +60,8 @@ on, in the same spirit as the correctness table in `CLAUDE.md`:
 ### 5. Screenshot-iterate PRIVATELY, then show Toby
 
 ```sh
-cd frontend && npm run dev            # 127.0.0.1:5173 — never `localhost`
+npm --prefix frontend run dev         # 127.0.0.1:5173 — never `localhost`
+# ...then, from the repo root, in another shell:
 design/capture.sh 'http://127.0.0.1:5173/' /tmp/hero.png 1440 900
 design/capture.sh 'http://127.0.0.1:5173/' /tmp/hero-375.png 375 812 2
 REDUCED=0 SCROLL=1890 design/capture.sh 'http://127.0.0.1:5173/' /tmp/beat.png 1440 900
@@ -84,10 +85,14 @@ reason a technically-correct page can still be wrong:
 - **A static "clean" hero reads as AI slop.** Centered headline, subhead, two
   buttons, a soft gradient — that is the default output of every tool that has
   ever generated a landing page, and it says "nobody made this".
-- **One signature interactive or motion moment per page.** Exactly one. Spend
-  all the boldness there and keep everything around it quiet. On the landing
-  page that budget is spent: `DataAthlete` (photographs rendered as
-  luminance-driven glyph scanlines) and the pinned `CheckInChapter`.
+- **One signature moment per section — and a page gets very few sections.**
+  Spend all the boldness there and keep everything around it quiet. On the
+  landing page the budget is already spent, twice and deliberately: the hero
+  has `DataAthlete` (photographs rendered as luminance-driven glyph scanlines)
+  and the chapter is the pinned scroll sequence, which
+  `.claude/rules/design.md` sanctions separately. A *third* would be one too
+  many. Read as "exactly one per page" this bullet would forbid what we have
+  already shipped, so it is stated the way it is actually applied.
 - **meuze.ai is the reference class.** Not the style to copy — the level of
   intent to match.
 

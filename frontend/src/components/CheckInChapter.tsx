@@ -10,7 +10,7 @@ import * as m from 'motion/react-m'
  * via MotionValues; React never re-renders during scroll.
  */
 
-const TRANSCRIPT = 'bench felt easy today, 135 for 4 sets of 8; military press 105, three sixes; squats 225 5x5'
+const CHECK_IN = 'bench felt easy today, 135 for 4 sets of 8; military press 105, three sixes; squats 225 5x5'
 const REPLY = 'Logged. Bench moved fast today — we go 140 next session. Press is stalling at 105, so Friday we add a back-off set. Squats looked strong.'
 
 const BEATS = [
@@ -39,7 +39,7 @@ function window01(p: number, a: number, b: number): number {
 
 export function CheckInChapter() {
   const sectionRef = useRef<HTMLElement | null>(null)
-  const transcriptRef = useRef<HTMLParagraphElement | null>(null)
+  const checkInRef = useRef<HTMLParagraphElement | null>(null)
   const replyRef = useRef<HTMLSpanElement | null>(null)
   const replyBlockRef = useRef<HTMLParagraphElement | null>(null)
   const rowRefs = useRef<Array<HTMLDivElement | null>>([])
@@ -58,11 +58,11 @@ export function CheckInChapter() {
     // Reduced motion: show the finished state, no scrubbing.
     const done = reduced ? 1 : p
 
-    // Beat 01 — transcript types with scroll (0.05 → 0.35).
+    // Beat 01 — the check-in types with scroll (0.05 → 0.35).
     const typed = smoothstep(window01(done, 0.05, 0.35))
-    if (transcriptRef.current) {
-      const chars = Math.round(TRANSCRIPT.length * typed)
-      transcriptRef.current.textContent = TRANSCRIPT.slice(0, chars) || ' '
+    if (checkInRef.current) {
+      const chars = Math.round(CHECK_IN.length * typed)
+      checkInRef.current.textContent = CHECK_IN.slice(0, chars) || ' '
     }
 
     // Beat 02 — rows wipe in sequentially, numbers roll (0.38 → 0.62).
@@ -159,7 +159,7 @@ export function CheckInChapter() {
             </p>
 
             <p
-              ref={transcriptRef}
+              ref={checkInRef}
               className="font-display text-display-sm mt-6 min-h-40 text-balance text-fg md:min-h-48"
             >
               {' '}

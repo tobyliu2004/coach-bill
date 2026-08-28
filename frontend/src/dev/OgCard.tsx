@@ -1,4 +1,5 @@
 import { DataAthlete } from '../components/DataAthlete'
+import { HEADLINE_LINES } from '../lib/landingCopy'
 
 /**
  * Dev-only artboards for the two images that ship in `frontend/public/`:
@@ -9,11 +10,10 @@ import { DataAthlete } from '../components/DataAthlete'
  * whole point: a hand-drawn card drifts from the site the moment the site
  * changes, and a card generated from `index.css` cannot.
  *
- *   npm run dev
- *   design/capture.sh 'http://127.0.0.1:5173/__og?target=og&scene=deadlift' \
- *     frontend/public/og.png 1200 630 2
- *   design/capture.sh 'http://127.0.0.1:5173/__og?target=icon' \
- *     frontend/public/apple-touch-icon.png 180 180 1
+ * **The regeneration recipe lives in `design/og/README.md` and only there.**
+ * An earlier copy of the commands sat here too and had already drifted — it
+ * omitted the downsample step, so following it produced a 2400×1260 card while
+ * `index.html` kept declaring `og:image:width` 1200. One source, not two.
  *
  * `&scene=deadlift` is DataAthlete's existing dev freeze — it pins the pose so
  * two captures a week apart produce the same lifter. The route is mounted only
@@ -34,17 +34,24 @@ function SocialCard() {
         <DataAthlete className="h-full w-full" />
       </div>
 
-      {/* The three lines are explicit, exactly as Landing's HEADLINE_LINES
-          renders them — a card that re-wraps differently from the page it
-          links to reads as a different product. */}
+      {/* The headline comes FROM Landing, line for line — copy-pasting it here
+          would let the card advertise a headline the page no longer has, and
+          nobody would notice, because the card never renders on the site. */}
       <div className="relative z-10 flex flex-col gap-9 pl-20">
         <span className="font-display text-lg font-semibold tracking-tight text-fg">Coach Bill</span>
         <h1 className="font-display text-hero text-fg">
-          <span className="block">The coach who</span>
-          <span className="block">remembers</span>
-          <span className="block">
-            <span className="text-accent">every rep</span>.
-          </span>
+          {HEADLINE_LINES.map((line, i) => (
+            <span key={line} className="block">
+              {i === HEADLINE_LINES.length - 1 ? (
+                // Last line carries the one accent, minus its full stop.
+                <>
+                  <span className="text-accent">{line.replace(/\.$/, '')}</span>.
+                </>
+              ) : (
+                line
+              )}
+            </span>
+          ))}
         </h1>
         <p className="font-mono text-sm tracking-widest text-fg-muted uppercase">
           Type one sentence — logged, tracked, coached

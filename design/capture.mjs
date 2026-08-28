@@ -100,8 +100,63 @@ await send('Emulation.setDeviceMetricsOverride', {
   deviceScaleFactor: Number(dpr),
   mobile: Number(width) < 768,
 })
-await send('Page.navigate', { url })
-await sleep(Number(waitMs))
+// Page.navigate reports a failed load in its RESULT, not as a protocol error,
+// so this has to be read. Without it a dead port (or the wrong port — Vite
+// silently moves to 5174 when 5173 is taken) captures Chrome's
+// "This site can't be reached" page at the right dimensions and exits 0, and
+// the documented workflow writes that straight over frontend/public/og.png.
+const nav = await send('Page.navigate', { url })
+if (nav.errorText) {
+  throw new Error(`navigation failed: ${nav.errorText} — ${url}`)
+}
+
+/**
+ * Readiness, not a fixed sleep. The whole reason this file exists is that
+ * `chrome --screenshot` shot before DataAthlete's async build finished and
+ * wrote a blank canvas; a longer hardcoded sleep has that same bug at a
+ * different threshold (a cold Vite optimize-deps reload restarts the build).
+ *
+ * So: the SPA must be mounted, and if the page has a canvas it must have ink.
+ * The icon artboard has no canvas and passes on mount alone.
+ */
+const READY = `(() => {
+  const root = document.querySelector('#root')
+  if (!root || root.children.length === 0) return false
+  const canvas = document.querySelector('canvas')
+  if (!canvas) return true
+  if (!canvas.width || !canvas.height) return false
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return true
+  const { width: w, height: h } = canvas
+  const step = Math.max(1, Math.floor(w / 120))
+  const px = ctx.getImageData(0, 0, w, h).data
+  let ink = 0
+  for (let y = 0; y < h; y += step) {
+    for (let x = 0; x < w; x += step) {
+      const i = (y * w + x) * 4
+      if (px[i + 3] > 8 && px[i] + px[i + 1] + px[i + 2] > 24 && ++ink > 40) return true
+    }
+  }
+  return false
+})()`
+
+// waitMs is the CEILING now, not the mechanism — a ready page shoots at once.
+const deadline = Date.now() + Number(waitMs)
+let ready = false
+while (Date.now() < deadline) {
+  const res = await send('Runtime.evaluate', { expression: READY, returnByValue: true })
+  if (res.result?.value === true) {
+    ready = true
+    break
+  }
+  await sleep(250)
+}
+if (!ready) {
+  throw new Error(
+    `page never became ready within ${waitMs}ms — ${url}\n` +
+      `(the SPA did not mount, or its canvas is still blank; raise WAIT= if the machine is slow)`,
+  )
+}
 
 if (Number(scrollY) > 0) {
   await send('Runtime.evaluate', { expression: `window.scrollTo(0, ${Number(scrollY)})` })

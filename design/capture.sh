@@ -9,8 +9,16 @@
 # Environment:
 #   REDUCED=0   capture WITHOUT prefers-reduced-motion (default: reduced ON)
 #   SCROLL=px   scroll to this offset before the shot (default 0)
-#   WAIT=ms     real-time settle before the shot (default 4000)
+#   WAIT=ms     CEILING on how long to wait for the page to be ready, not a
+#               sleep — a ready page is shot immediately (default 15000)
 #   CHROME=...  path to the Chrome binary
+#
+# It FAILS LOUDLY (non-zero) rather than writing a bad PNG: a refused
+# connection or a page that never finishes rendering is an error, not a
+# screenshot. That matters because the documented way to regenerate the social
+# card writes straight over a committed asset.
+#
+# Requires Node >= 21 (global WebSocket), checked below.
 #
 # Reduced motion is the default because it makes the capture reproducible:
 # DataAthlete's reduced-motion path draws ONE static frame and CheckInChapter
@@ -32,5 +40,9 @@ W=${3:-1440}
 H=${4:-900}
 DPR=${5:-1}
 
+# capture.mjs speaks CDP over the global WebSocket, which Node only exposes
+# unflagged from v21. Without this the failure is a bare ReferenceError.
+node -e 'if (typeof WebSocket === "undefined") { console.error("capture.sh needs Node >= 21 (global WebSocket); this is " + process.version); process.exit(1) }'
+
 node "$(dirname "$0")/capture.mjs" \
-  "$URL" "$OUT" "$W" "$H" "$DPR" "${REDUCED:-1}" "${WAIT:-4000}" "${SCROLL:-0}"
+  "$URL" "$OUT" "$W" "$H" "$DPR" "${REDUCED:-1}" "${WAIT:-15000}" "${SCROLL:-0}"

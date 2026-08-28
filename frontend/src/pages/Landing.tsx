@@ -7,11 +7,11 @@ import * as m from 'motion/react-m'
 import { CheckInChapter } from '../components/CheckInChapter'
 import { DataAthlete } from '../components/DataAthlete'
 import { HealthDot } from '../components/HealthDot'
+import { HEADLINE_LINES } from '../lib/landingCopy'
 import { EASE_OUT_EXPO } from '../lib/motion'
 
-const HEADLINE_LINES = ['The coach who', 'remembers', 'every rep.'] as const
-
-/** Load choreography: nav → headline lines unmask → CTA + sub → scroll hint. */
+/** Load choreography: nav → headline lines unmask → CTA + sub. (The scroll
+ *  hint below is static — it has no entrance of its own.) */
 function lineDelay(i: number): number {
   return 0.15 + i * 0.09
 }
