@@ -7,11 +7,11 @@ import * as m from 'motion/react-m'
 import { CheckInChapter } from '../components/CheckInChapter'
 import { DataAthlete } from '../components/DataAthlete'
 import { HealthDot } from '../components/HealthDot'
+import { HEADLINE_LINES } from '../lib/landingCopy'
 import { EASE_OUT_EXPO } from '../lib/motion'
 
-const HEADLINE_LINES = ['The coach who', 'remembers', 'every rep.'] as const
-
-/** Load choreography: nav → headline lines unmask → sub/CTA → voice strip. */
+/** Load choreography: nav → headline lines unmask → CTA + sub. (The scroll
+ *  hint below is static — it has no entrance of its own.) */
 function lineDelay(i: number): number {
   return 0.15 + i * 0.09
 }
@@ -102,8 +102,8 @@ function Landing() {
               Start your free month
             </Link>
             <p className="max-w-md text-base leading-relaxed text-fg-muted">
-              Say your check-in out loud. Bill logs it, tracks it, and coaches you like
-              he&rsquo;s known you for months — because he has.
+              Type one sentence after you train. Bill logs it, tracks it, and coaches you
+              like he&rsquo;s known you for months — because he has.
             </p>
           </m.div>
         </div>
@@ -115,7 +115,7 @@ function Landing() {
         </div>
       </section>
 
-      {/* ---- Chapter: 01 speak → 02 logged → 03 coached ---- */}
+      {/* ---- Chapter: 01 type → 02 logged → 03 coached ---- */}
       <CheckInChapter />
 
       {/* ---- End cap: free-trial signup (wired for real in the Auth issue) ---- */}
