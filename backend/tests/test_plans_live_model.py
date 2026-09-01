@@ -226,10 +226,40 @@ def _describes_progression(note: str) -> bool:
 # exact bug #48 shipped three times. A focus fails if it is empty, if it is a placeholder,
 # or if it is prose rather than a label. A REST day is the one positive requirement the row
 # states in its own words, so the recovery family is matched directly.
+#
+# 🔓 AMENDED BY AMENDMENT 12 ON ISSUE #51, APPROVED BEFORE THE EDIT.
+#
+#   amendment: https://github.com/tobyliu2004/coach-bill/issues/51#issuecomment-5500428926
+#
+# ⚠️ DIRECTION: WIDENING — THIS CAN NEWLY PASS.
+#
+# THE SAME BUG, A FIFTH TIME: a list of examples standing in for a description. One family
+# held every word that appears in a rest label, and the with-items branch below then read
+# any of them as a claim of total rest. So this — which is standard programming — failed:
+#
+#     day 6 (6 items): 'Active Recovery — Core & Cardio' says rest but prescribes 6 items
+#
+# `active recovery`, `mobility` and `deload` are labels for days that prescribe LIGHT WORK.
+# Calling them synonyms for rest made a mobility day containing a mobility exercise
+# unrepresentable. It also made L4 flaky — three runs went fail, pass, pass — and amendment
+# 10 already settled that a non-deterministic boundary on model output is a flaky test.
+#
+# The families are now split on the distinction the original rule missed: **"rest" and "off"
+# mean NO work; "active recovery", "mobility" and "deload" mean LIGHT work.** A day with zero
+# items may carry any of them (unchanged). A day WITH items may not claim to be full rest —
+# which is the honesty property row L4 is actually about, kept exactly.
 
+# Any label that says the day is about recovery — the whole family. Used only for the
+# zero-item branch, which is unchanged: a day with nothing on it must say so, and
+# "Mobility" or "Active Recovery" say so perfectly well.
 _RECOVERY = re.compile(
     r"\b(?:rest|recover\w*|off|active\s+recovery|mobility|deload|regener\w*)\b", re.I
 )
+# A claim of TOTAL rest, and nothing else. Deliberately excludes `recover\w*`, `mobility`
+# and `deload`: a day can be labelled for recovery and still prescribe work, and that is
+# the whole point of this amendment. `\b` anchors are load-bearing — "interested" and
+# "restorative" must not read as rest, which is asserted below.
+_FULL_REST = re.compile(r"\b(?:rest|off)\b", re.I)
 _PLACEHOLDER_FOCUS = re.compile(
     r"^(?:n/?a|tbd|tba|none|null|nil|-+|\?+|day\s*\d+|week\s*\d+|\d+"
     r"|mon(?:day)?|tue(?:s|sday)?|wed(?:nesday)?|thu(?:r|rs|rsday)?|fri(?:day)?"
@@ -240,6 +270,11 @@ _PLACEHOLDER_FOCUS = re.compile(
 
 def _is_recovery(focus: str) -> bool:
     return _RECOVERY.search(focus) is not None
+
+
+def _is_full_rest(focus: str) -> bool:
+    """Does this focus claim the day involves NO work at all? (amendment 12)"""
+    return _FULL_REST.search(focus) is not None
 
 
 def _focus_problem(focus: str, item_count: int) -> str | None:
@@ -259,7 +294,9 @@ def _focus_problem(focus: str, item_count: int) -> str | None:
         return f"{stripped!r} is a sentence, not a label"
     if item_count == 0 and not _is_recovery(stripped):
         return f"{stripped!r} has no items but does not say rest — row L4's second half"
-    if item_count > 0 and _is_recovery(stripped):
+    # AMENDMENT 12: `_is_full_rest`, not `_is_recovery`. A day may be labelled for recovery
+    # and still prescribe light work; only a claim of TOTAL rest is contradicted by items.
+    if item_count > 0 and _is_full_rest(stripped):
         return f"{stripped!r} says rest but prescribes {item_count} items"
     return None
 
@@ -345,6 +382,11 @@ def test_the_progression_rule_rejects_a_restatement_of_week_one(note: str) -> No
         ("rest", 0),
         ("Active Recovery", 0),
         ("mobility", 0),
+        # AMENDMENT 12 — the must-PASS half. A day can be labelled for recovery and still
+        # prescribe light work. The first of these is the exact focus that failed L4 live.
+        ("Active Recovery — Core & Cardio", 6),
+        ("mobility", 4),
+        ("deload week", 5),
     ],
 )
 def test_the_focus_rule_accepts_training_labels(focus: str, items: int) -> None:
@@ -363,7 +405,12 @@ def test_the_focus_rule_accepts_training_labels(focus: str, items: int) -> None:
         ("Monday", 4),
         ("7", 4),
         ("push", 0),  # a day with nothing on it that does not say rest (L4's second half)
-        ("rest", 5),  # ...and its mirror: a "rest" day with five exercises on it
+        # ...and its mirror: a "rest" day with five exercises on it. ⚠️ AMENDMENT 12's
+        # LOAD-BEARING must-FAIL case. If splitting the family made these pass, the
+        # amendment would have deleted row L4's honesty property rather than fixed it.
+        ("rest", 5),
+        ("Rest Day", 6),
+        ("Off", 4),
         ("today you will train the pushing muscles of the upper body hard", 4),  # prose
     ],
 )
@@ -380,6 +427,18 @@ def test_the_recovery_family_does_not_match_rest_inside_another_word() -> None:
     assert _is_recovery("active recovery")
     assert not _is_recovery("interested")
     assert not _is_recovery("restorative breathing")  # 'rest' is not a word here either
+
+    # AMENDMENT 12 — the same word-boundary proof for the narrower family, plus the split
+    # itself asserted directly: a full-rest claim is rest/off and NOTHING else.
+    assert _is_full_rest("rest")
+    assert _is_full_rest("Rest Day")
+    assert _is_full_rest("Off")
+    assert not _is_full_rest("interested")
+    assert not _is_full_rest("restorative breathing")
+    # The split. Each of these still reads as recovery, and none of them claims total rest.
+    for light in ("active recovery", "Active Recovery — Core & Cardio", "mobility", "deload"):
+        assert _is_recovery(light), light
+        assert not _is_full_rest(light), light
     assert not _is_recovery("chest and triceps")  # the one that would break every push day
     assert not _is_recovery("press")
 
