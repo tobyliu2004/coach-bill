@@ -149,10 +149,7 @@ def _is_bench_movement(name: str) -> bool:
 def _loads(template: Any) -> list[Decimal]:
     """Every prescribed working load in the template, in kg."""
     return [
-        item.weight_kg
-        for day in template.days
-        for item in day.items
-        if item.weight_kg is not None
+        item.weight_kg for day in template.days for item in day.items if item.weight_kg is not None
     ]
 
 
