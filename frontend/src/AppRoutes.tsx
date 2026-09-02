@@ -16,6 +16,9 @@ const Login = lazy(() => import('./pages/Login'))
 const AppHome = lazy(() => import('./pages/AppHome'))
 const History = lazy(() => import('./pages/History'))
 const Trends = lazy(() => import('./pages/Trends'))
+const Plan = lazy(() => import('./pages/Plan'))
+const Diet = lazy(() => import('./pages/Diet'))
+
 // Dev-only artboards for og.png / apple-touch-icon.png — see
 // frontend/src/dev/OgCard.tsx. The DEV check has to wrap the lazy() call, not
 // just the <Route>: guarding the route alone still emitted an OgCard chunk and
@@ -38,6 +41,8 @@ export function AppRoutes() {
             <Route path="/app" element={<AppHome />} />
             <Route path="/history" element={<History />} />
             <Route path="/trends" element={<Trends />} />
+            <Route path="/plan" element={<Plan />} />
+            <Route path="/diet" element={<Diet />} />
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

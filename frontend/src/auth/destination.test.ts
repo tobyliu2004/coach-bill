@@ -166,3 +166,72 @@ describe('/trends as a destination', () => {
     expect(resolveDestination(onboarded, '/history')).toBeNull()
   })
 })
+
+// --- /plan and /diet are the FOURTH and FIFTH protected in-app paths (issue #51, row 25) ---
+//
+// APPENDED, NEVER EDITED: every line above is #17's, #20 PR 1's and #20 PR 2's oracle and
+// stays byte-identical. Purely additive — nothing here can make a previously-failing case
+// pass, and no existing assertion is touched.
+//
+// WHICH ROW THESE ARE, STATED HONESTLY. The approved 26-row table has no routing row of its
+// own; row 25 says "all five nav items REACHABLE". A nav link whose destination is not in
+// APP_PATHS is bounced straight back to /app by `resolveDestination`'s terminal line, so the
+// screen is unreachable by construction and the link is decoration. Routing membership is
+// the precondition of row 25's word "reachable", and that is the only thing asserted here.
+// The `AppShell.tsx` half of row 25 lives in `src/components/AppShell.test.ts`.
+//
+// This is the same terminal line being taught a FOURTH and FIFTH in-app route, and the
+// regression guards matter more each time: the more paths that line has to know about, the
+// easier it is to fix one by breaking another.
+
+describe('/plan as a destination', () => {
+  // AC row 25 (reachability): an onboarded user on /plan stays put. Without this the plan
+  // screen is unreachable — the terminal line bounces everything it does not recognise, so
+  // the nav item would be a link to a redirect back to /app.
+  it('lets an onboarded user stay on /plan', () => {
+    expect(resolveDestination(onboarded, '/plan')).toBeNull()
+  })
+
+  // AC row 25 (reachability): a signed-out visitor to /plan goes to /login. A screen that
+  // renders a user's generated program must not be reachable without a session.
+  it('sends a signed-out visitor from /plan to /login', () => {
+    expect(resolveDestination(signedOut, '/plan')).toBe('/login')
+  })
+
+  // AC row 25 (reachability): an un-onboarded user goes to /onboarding. They have no
+  // timezone yet, so `starts_on` would be computed in UTC — the #18/#39 bug arriving
+  // through the front door of a brand-new screen.
+  it('funnels a not-yet-onboarded user from /plan to /onboarding', () => {
+    expect(resolveDestination(fresh, '/plan')).toBe('/onboarding')
+  })
+})
+
+describe('/diet as a destination', () => {
+  // AC row 25 (reachability): an onboarded user on /diet stays put.
+  it('lets an onboarded user stay on /diet', () => {
+    expect(resolveDestination(onboarded, '/diet')).toBeNull()
+  })
+
+  // AC row 25 (reachability): a signed-out visitor to /diet goes to /login.
+  it('sends a signed-out visitor from /diet to /login', () => {
+    expect(resolveDestination(signedOut, '/diet')).toBe('/login')
+  })
+
+  // AC row 25 (reachability): an un-onboarded user goes to /onboarding.
+  it('funnels a not-yet-onboarded user from /diet to /onboarding', () => {
+    expect(resolveDestination(fresh, '/diet')).toBe('/onboarding')
+  })
+})
+
+describe('the first three in-app paths still work with five (regression guards)', () => {
+  // AC row 25 (REGRESSION GUARDS): three paths were a list someone could truncate; five is
+  // a list someone can rewrite. These are the assertions that fail if /plan and /diet are
+  // added by replacing the terminal line's set rather than extending it.
+  it.each(['/app', '/history', '/trends'])('still leaves an onboarded user alone on %s', (path) => {
+    expect(resolveDestination(onboarded, path)).toBeNull()
+  })
+
+  it.each(['/app', '/history', '/trends'])('still sends a signed-out visitor from %s to /login', (path) => {
+    expect(resolveDestination(signedOut, path)).toBe('/login')
+  })
+})

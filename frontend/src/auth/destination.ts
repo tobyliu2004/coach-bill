@@ -21,8 +21,14 @@ export interface AuthSnapshot {
  * "is this THE app screen?"), and the moment a second screen existed it bounced the user
  * straight back to /app — a new route that is unreachable by construction. Membership, not
  * equality, is what makes adding the third screen a one-line change.
+ *
+ * #51 added the fourth and fifth. Being IN this list is the precondition of row 25's word
+ * "reachable": a nav link whose destination is not here is bounced straight back to /app by
+ * the terminal rule below, so the screen is unreachable by construction and the link in the
+ * shell is decoration. That is a one-line omission with no visible symptom except a screen
+ * nobody can open — which is exactly how /history and /trends went undiscovered for weeks.
  */
-const APP_PATHS = ['/app', '/history', '/trends']
+const APP_PATHS = ['/app', '/history', '/trends', '/plan', '/diet']
 
 /** Everything that requires a session: the app, plus the onboarding that gates it. */
 const PROTECTED_PATHS = [...APP_PATHS, '/onboarding']

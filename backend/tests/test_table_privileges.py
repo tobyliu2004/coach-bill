@@ -50,8 +50,27 @@ requires_rls_db = pytest.mark.skipif(
     reason="RLS_DATABASE_URL not set; least-privilege real-DB suite skipped",
 )
 
-# All 8 public tables. Every "×8" in the AC table is all of these, not a sample. Fixed
-# tuple, so f-stringing a member into SQL (for TRUNCATE) is safe — it is never client input.
+# #37's 8 public tables, plus the 3 this file gained by amendment (see below). Every "×8"
+# in #37's AC table is all of these, not a sample. Fixed tuple, so f-stringing a member into
+# SQL (for TRUNCATE) is safe — it is never client input.
+#
+# 🔓 AMENDED BY ISSUE #51 — APPROVED BEFORE `test-author` RAN, AND THIS IS THE AUDIT TRAIL.
+#
+# `plans`, `plan_days` and `plan_items` join TABLES and C3_APP_VERBS. Row 16 of #51 asserts
+# a grant matrix on those three tables, and the only honest place for it is the one audited
+# matrix — not a second, parallel one that drifts.
+#
+# DIRECTION: NARROWING — CAN ONLY NEWLY FAIL. Adding tables to TABLES subjects three more
+# tables to A1 (anon holds nothing), B1 (the excess verbs are absent) and C1-C4 (the exact
+# app verb matrix). Every existing assertion is untouched and strictly stricter; nothing
+# that failed before can now pass.
+#
+# The direction was stated WRONGLY when the amendment was first proposed — Claude framed it
+# as "widening", which by CLAUDE.md's axis means *can newly pass*, the dangerous direction —
+# and was corrected in the plan before Toby approved it. Recorded here because the whole
+# value of an audit trail is that it says what actually happened.
+#
+#   amendment: https://github.com/tobyliu2004/coach-bill/issues/51#issuecomment-5388619729
 TABLES = (
     "profiles",
     "check_ins",
@@ -61,6 +80,10 @@ TABLES = (
     "sleep_entries",
     "bodyweight_entries",
     "coach_messages",
+    # 🔓 #51 amendment 1 — narrowing, can only newly fail.
+    "plans",
+    "plan_days",
+    "plan_items",
 )
 
 # The four roles under test. `coach_app` is the login role prod uses; it INHERITS
@@ -145,6 +168,22 @@ C3_APP_VERBS: dict[str, dict[str, bool]] = {
     # approved edits in the open are fine; one quiet one is not. If a future change needs
     # `delete` or `update` back, it needs a new approved row.
     "coach_messages": {"select": True, "insert": True, "update": False, "delete": False},
+    # 🔓 #51 AMENDMENT 1 (see the block above TABLES for the audit trail and the direction).
+    #
+    # `update` is FALSE at the table level for all three, and for `plans` that is DELIBERATE
+    # rather than an oversight. The migration grants `update (status)` — COLUMN-level,
+    # `plans` only, so the app can archive the previous plan (#51 row 14) — and that grant is
+    # asserted separately with `has_column_privilege`, exactly as `check_ins.extraction_status`
+    # is in C4. If the table-level `update` were True here, #51 row 16's real content ("an
+    # UPDATE of `calories_target` is refused by the DB") would be untested, because the app
+    # role would hold update on every column.
+    #
+    # `delete` is True on all three: a plan the user replaces is archived, never deleted, but
+    # #51 row 17's `on delete cascade` and the account-deletion path both need the verb, and
+    # a plan is the user's own row to discard. `insert` is the create path (row 1).
+    "plans": {"select": True, "insert": True, "update": False, "delete": True},
+    "plan_days": {"select": True, "insert": True, "update": False, "delete": True},
+    "plan_items": {"select": True, "insert": True, "update": False, "delete": True},
 }
 
 

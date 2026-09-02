@@ -61,6 +61,7 @@ from app.db import coach as coach_db
 from app.db.profiles import get_profile
 from app.schemas.check_ins import CheckInOut
 from app.schemas.coach import CoachReplyOut
+from app.schemas.plans import PlanItemOut, PlanOut
 from app.schemas.trends import TrendsOut
 from app.services.check_ins import list_check_ins
 from app.services.trends import get_trends
@@ -115,6 +116,7 @@ def build_context(
     trends: TrendsOut,
     check_ins: list[CheckInOut],
     recent_replies: list[str],
+    plan: PlanOut | None = None,
 ) -> str:
     """Everything Bill knows about one person, as one string. PURE.
 
@@ -131,6 +133,14 @@ def build_context(
     Written for a model to read, not a human: labelled sections, one fact per line, no
     prose. The coach prompt tells Bill to reference actual numbers, and this is where those
     numbers have to be unambiguous enough for him to do it without inventing any.
+
+    ⚠️ `plan` IS KEYWORD-ONLY AND DEFAULTS TO None, AND THAT IS #51 ROW 26.
+    Called without it, this function's output is BYTE-IDENTICAL to what it produced before
+    the plan feature existed — the PLAN section is appended only when a plan is actually
+    passed. That is what keeps #21's and #48's frozen oracles green without a single edit to
+    them, which matters more than it looks: those suites are the audit trail for two earlier
+    correctness gates, and a feature that forced them to be rewritten would quietly destroy
+    the evidence that they predated their code.
     """
     sections: list[str] = []
 
@@ -161,7 +171,86 @@ def build_context(
         numbered = "\n".join(f"- {reply.strip()}" for reply in recent_replies)
         sections.append("YOUR LAST FEW REPLIES (do not repeat these)\n" + numbered)
 
+    # LAST, and only when there is one. Appending rather than inserting is what makes the
+    # no-plan output byte-identical (row 26); a section slotted in the middle would change
+    # every string this function has ever produced.
+    if plan is not None:
+        sections.append(_plan_section(plan))
+
     return "\n\n".join(sections)
+
+
+def _collapsed_sets(items: list[PlanItemOut]) -> list[str]:
+    """Consecutive identical sets as "3 x bench press 8 reps @ 60 kg", not three copies.
+
+    `plan_items` stores ONE ROW PER SET — deliberately, so planned-vs-actual is a SQL join
+    rather than a parser (see the migration). That is right for the database and wrong for
+    a prompt: rendered literally, a 4-week plan spends a few thousand tokens on every coach
+    reply repeating `bench press 8 reps @ 60 kg` three times in a row, and an 8-week plan
+    (the legal maximum) doubles it. It is also how a lifter would never say it.
+
+    Only CONSECUTIVE identical sets collapse, so this cannot reorder or merge across a
+    movement boundary — the day still reads in the order it is stored, which after the
+    `position` fix is the order Bill wrote it in. `formatFacts.ts` already does exactly this
+    on the client for logged sets; this is the same rule on the way into the model.
+
+    Numbers are carried through untouched, the rule the rest of this module follows.
+    """
+    out: list[str] = []
+    count = 0
+    current = ""
+    for item in items:
+        rendered = f"{item.exercise_name} {item.reps} reps" + (
+            f" @ {_num(item.weight_kg)} kg" if item.weight_kg is not None else ""
+        )
+        if rendered == current:
+            count += 1
+            continue
+        if current:
+            out.append(f"{count} x {current}" if count > 1 else current)
+        current, count = rendered, 1
+    if current:
+        out.append(f"{count} x {current}" if count > 1 else current)
+    return out
+
+
+def _plan_section(plan: PlanOut) -> str:
+    """The active program, rendered for the model (#51 row 26).
+
+    ⚠️ THIS SECTION IS WHY `COACH_SYSTEM_PROMPT` HAD TO CHANGE. It used to say "Nothing you
+    write is stored as a plan", which was true and is now false. A prompt that denies a
+    capability the app has is the #48 bug exactly — the model refusing the most on-topic
+    request in the product because the prompt described the wrong app.
+
+    Numbers are carried through untouched, the same rule `_trends_section` follows: every
+    value here was computed or stored elsewhere, and a second opinion about the user's own
+    program is precisely the divergence that makes a coach untrustworthy.
+
+    TODAY'S DAY IS NOT MARKED, deliberately. This function is pure and has no clock; a
+    "today" here could only come from a date the caller passed in, and there is no row
+    asking for one. The dates are unambiguous and Bill can read them.
+    """
+    header = (
+        f"ACTIVE PLAN ({plan.starts_on.isoformat()} to {plan.ends_on.isoformat()}, "
+        f"{plan.weeks} weeks)"
+    )
+    lines = [
+        f"- Progression: {plan.progression_note.strip()}",
+        f"- Daily targets: {_num(plan.calories_target)} kcal, "
+        f"{_num(plan.protein_g_target)}g protein, {_num(plan.carbs_g_target)}g carbs, "
+        f"{_num(plan.fat_g_target)}g fat",
+    ]
+    for day in plan.days:
+        # `logged` is a fact about whether they trained that day, so it is stated rather
+        # than left for Bill to infer from the check-ins section.
+        done = "trained" if day.logged else "not logged"
+        if day.items:
+            work = "; ".join(_collapsed_sets(day.items))
+        else:
+            work = "no prescribed work"
+        lines.append(f"- {day.day_date.isoformat()} ({day.focus}, {done}): {work}")
+
+    return header + "\n" + "\n".join(lines)
 
 
 def _trends_section(trends: TrendsOut) -> str:
@@ -348,7 +437,7 @@ async def reply_to_check_in(
 
 async def _coach_reply(pool: asyncpg.Pool, user_id: UUID, raw_text: str, coach: Coach) -> str:
     """Assemble the context, generate, and refuse anything not worth storing."""
-    context = await _context_for(pool, user_id)
+    context = await context_for(pool, user_id)
     try:
         content = await coach.reply(context, raw_text)
     except Exception as exc:
@@ -364,8 +453,12 @@ async def _coach_reply(pool: asyncpg.Pool, user_id: UUID, raw_text: str, coach: 
     return stripped
 
 
-async def _context_for(pool: asyncpg.Pool, user_id: UUID) -> str:
+async def context_for(pool: asyncpg.Pool, user_id: UUID, *, include_plan: bool = True) -> str:
     """Read this user's world, then hand it to the pure builder.
+
+    Public because the PLAN feature reads the same world (#51): a program written off
+    someone's own numbers needs exactly what a reply needs, and two assemblies of "what we
+    know about this person" would drift the day one of them gained a section.
 
     Every read here is owner-scoped by the function it calls; none of them can see another
     user's rows, which is what makes AC row 22 a property of the system rather than of this
@@ -391,7 +484,25 @@ async def _context_for(pool: asyncpg.Pool, user_id: UUID) -> str:
     )
     recent = [reply.content for reply in replies[:RECENT_REPLIES]]
 
+    # #51 row 26: the active plan, when there is one. Read here with the other effects, so
+    # `build_context` stays pure and the no-plan call stays byte-identical.
+    #
+    # ⚠️ IMPORTED INSIDE THE FUNCTION, AND THAT IS THE CYCLE BREAKER, NOT LAZINESS.
+    # `services/plans.py` imports `context_for` from this module at module level, because a
+    # program written off someone's own numbers needs exactly what a reply needs. A
+    # module-level import back the other way would be a genuine circular import. This
+    # direction is the one that has to yield: the coach is the older, more central module,
+    # and the plan feature is the one that arrived needing it.
+    from app.services.plans import get_current_plan
+
+    # `include_plan=False` when the PLANNER is the caller. It is about to write a new plan,
+    # and handing it the plan it is replacing invites the model to copy last month's program
+    # forward instead of reading the history — the plan it would see is the one that is
+    # about to be archived two statements later.
+    plan = await get_current_plan(pool, user_id) if include_plan else None
+
     return build_context(
+        plan=plan,
         goal=profile["goal"] if profile is not None else None,
         # Same fallback as the column's own default, so a profile that predates the column
         # renders in the unit the rest of the app assumes rather than crashing the reply.

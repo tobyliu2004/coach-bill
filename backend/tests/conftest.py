@@ -8,6 +8,7 @@ We record whether a *real* DATABASE_URL was provided so the integration test can
 
 import os
 from collections.abc import AsyncIterator, Iterator
+from decimal import Decimal
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -36,20 +37,23 @@ def no_live_model() -> Iterator[None]:
     `dependency_overrides` replaces this one. Each stand-in is the least presumptuous one
     available: it exercises the real success path and asserts nothing.
 
-    ⚠️ THE THREE ARE NOT EQUALLY LOAD-BEARING, and it is worth being honest about which.
+    ⚠️ THE FOUR ARE NOT EQUALLY LOAD-BEARING, and it is worth being honest about which.
     `get_extractor` is reachable from POST /check-ins, which many tests across many files
     call — without the fake, those really would dial the vendor. `get_gate`/`get_coach` are
-    reachable from exactly ONE endpoint (POST /check-ins/{id}/reply), and every test that
-    calls it overrides them itself, so today these two are belt-and-braces rather than the
-    thing standing between CI and a bill. They are here because the cost of the next
+    reachable from exactly ONE endpoint (POST /check-ins/{id}/reply), and `get_planner`
+    from exactly one (POST /plans); every test that calls those overrides them itself, so
+    today those three are belt-and-braces rather than the thing standing between CI and a
+    bill. They are here because the cost of the next
     endpoint forgetting is a real charge against prepaid credits with auto-recharge OFF, and
     the cost of the fake is four lines.
     """
     from app.ai.coach import get_coach
     from app.ai.extractor import get_extractor
     from app.ai.gate import Intent, get_gate
+    from app.ai.planner import get_planner
     from app.main import app
     from app.schemas.extraction import ExtractedFacts
+    from app.schemas.plans import PlanTemplate
 
     class _NullExtractor:
         async def extract(self, text: str) -> ExtractedFacts:
@@ -70,9 +74,36 @@ def no_live_model() -> Iterator[None]:
         async def reply(self, context: str, text: str) -> str:
             return "stand-in reply"
 
+    class _NullPlanner:
+        """A minimal VALID template — seven days, targets at the floor.
+
+        Added with issue #51, and the reason is the one the block above admits about
+        `get_gate`/`get_coach`: `POST /plans` is reachable from one endpoint and every test
+        that calls it overrides this itself, so today this is belt-and-braces rather than
+        the thing standing between CI and a bill. It is here because the next test that
+        forgets would build a real `SonnetPlanner` and dial Sonnet — the most expensive of
+        the four boundaries — against prepaid credits with auto-recharge OFF.
+
+        It returns a template that VALIDATES rather than an empty one: `PlanTemplate`
+        requires exactly seven days, so an empty stand-in would fail inside the boundary and
+        report itself to a forgetful test as a 503 from the vendor. A stand-in must exercise
+        the success path and assert nothing.
+        """
+
+        async def plan(self, *, context: str, weeks: int) -> PlanTemplate:
+            return PlanTemplate(
+                days=[{"focus": "rest", "items": []} for _ in range(7)],
+                calories_target=Decimal(2000),
+                protein_g_target=Decimal(150),
+                carbs_g_target=Decimal(200),
+                fat_g_target=Decimal(60),
+                progression_note="stand-in note",
+            )
+
     app.dependency_overrides[get_extractor] = lambda: _NullExtractor()
     app.dependency_overrides[get_gate] = lambda: _NullGate()
     app.dependency_overrides[get_coach] = lambda: _NullCoach()
+    app.dependency_overrides[get_planner] = lambda: _NullPlanner()
     yield
     app.dependency_overrides.clear()
 
