@@ -61,7 +61,7 @@ from app.db import coach as coach_db
 from app.db.profiles import get_profile
 from app.schemas.check_ins import CheckInOut
 from app.schemas.coach import CoachReplyOut
-from app.schemas.plans import PlanOut
+from app.schemas.plans import PlanItemOut, PlanOut
 from app.schemas.trends import TrendsOut
 from app.services.check_ins import list_check_ins
 from app.services.trends import get_trends
@@ -180,6 +180,40 @@ def build_context(
     return "\n\n".join(sections)
 
 
+def _collapsed_sets(items: list[PlanItemOut]) -> list[str]:
+    """Consecutive identical sets as "3 x bench press 8 reps @ 60 kg", not three copies.
+
+    `plan_items` stores ONE ROW PER SET — deliberately, so planned-vs-actual is a SQL join
+    rather than a parser (see the migration). That is right for the database and wrong for
+    a prompt: rendered literally, a 4-week plan spends a few thousand tokens on every coach
+    reply repeating `bench press 8 reps @ 60 kg` three times in a row, and an 8-week plan
+    (the legal maximum) doubles it. It is also how a lifter would never say it.
+
+    Only CONSECUTIVE identical sets collapse, so this cannot reorder or merge across a
+    movement boundary — the day still reads in the order it is stored, which after the
+    `position` fix is the order Bill wrote it in. `formatFacts.ts` already does exactly this
+    on the client for logged sets; this is the same rule on the way into the model.
+
+    Numbers are carried through untouched, the rule the rest of this module follows.
+    """
+    out: list[str] = []
+    count = 0
+    current = ""
+    for item in items:
+        rendered = f"{item.exercise_name} {item.reps} reps" + (
+            f" @ {_num(item.weight_kg)} kg" if item.weight_kg is not None else ""
+        )
+        if rendered == current:
+            count += 1
+            continue
+        if current:
+            out.append(f"{count} x {current}" if count > 1 else current)
+        current, count = rendered, 1
+    if current:
+        out.append(f"{count} x {current}" if count > 1 else current)
+    return out
+
+
 def _plan_section(plan: PlanOut) -> str:
     """The active program, rendered for the model (#51 row 26).
 
@@ -211,11 +245,7 @@ def _plan_section(plan: PlanOut) -> str:
         # than left for Bill to infer from the check-ins section.
         done = "trained" if day.logged else "not logged"
         if day.items:
-            work = "; ".join(
-                f"{item.exercise_name} {item.reps} reps"
-                + (f" @ {_num(item.weight_kg)} kg" if item.weight_kg is not None else "")
-                for item in day.items
-            )
+            work = "; ".join(_collapsed_sets(day.items))
         else:
             work = "no prescribed work"
         lines.append(f"- {day.day_date.isoformat()} ({day.focus}, {done}): {work}")

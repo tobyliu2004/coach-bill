@@ -209,9 +209,16 @@ async def _resolve_days(
             exercise_id = catalog.get(name)
             if exercise_id is None:
                 continue
+            # `position` is assigned HERE, from the order the model wrote the day in, and it
+            # is the index AFTER dropping unresolvable names so the stored positions are
+            # contiguous. It cannot be recovered later: `set_number` restarts per exercise,
+            # every row shares one `created_at`, and `id` is random — see the column's
+            # comment in the migration. Row 3's dropped item shifts what follows it up,
+            # which is right: the user's day is what was actually stored.
             items.append(
                 MaterializedItemRow(
                     exercise_id=exercise_id,
+                    position=len(items),
                     set_number=set_number,
                     reps=reps,
                     weight_kg=weight_kg,

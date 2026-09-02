@@ -100,7 +100,14 @@ export function planView(state: {
   // from the view state itself, rather than guarded inside a handler no node-env test could
   // see. Every other state offers it: a flag that can never be true is not a flag.
   if (state.generating) return { kind: 'generating', canGenerate: false }
-  if (state.loading) return { kind: 'loading', canGenerate: true }
+  // Also false while the FIRST fetch is in flight, and this is about the label, not the
+  // spinner. In `loading` the page renders the button as "Write my plan" — the
+  // `kind === 'plan'` branch that would say "Write a NEW plan" and warn "this replaces the
+  // plan above" has not been reached yet, because we do not know yet that a plan exists.
+  // Clicking in that window spends a Sonnet call AND archives a plan the user was never
+  // told they had. Disabling for the sub-second fetch costs nothing and removes the only
+  // state where the button misdescribes what it does.
+  if (state.loading) return { kind: 'loading', canGenerate: false }
   if (state.loadFailed) return { kind: 'load-failed', retry: true, canGenerate: true }
   if (state.plan === null) return { kind: 'empty', canGenerate: true }
   return { kind: 'plan', plan: state.plan, canGenerate: true }

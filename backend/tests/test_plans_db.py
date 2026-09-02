@@ -804,3 +804,97 @@ async def test_rows6_and_7_stored_days_are_contiguous_and_end_where_the_row_says
     finally:
         await _admin_delete_users(admin, a)
         await close_pool(pool)
+
+
+# =====================================================================================
+# H. Regression — a day's exercises come back in the order Bill wrote them
+# =====================================================================================
+#
+# ⚠️ NOT AN AC ROW, AND ADDED AFTER THE IMPLEMENTATION. Said out loud because the oracle
+# rules make that distinction load-bearing: this is a NEW test written to pin a bug the
+# approved table never anticipated, not an amendment to an existing expectation. Nothing
+# in the frozen suite is touched by it.
+#
+# Found by `/code-review high` on PR #55. `get_plan_items` ordered by `pi.set_number`, and
+# `set_number` RESTARTS AT 1 FOR EACH EXERCISE — confirmed against the live model, which
+# returned a push day as bench 1,2,3,4 then overhead press 1,2,3 then dip 1,2,3. Ordering
+# that day by `set_number` yields 1,1,1,2,2,2,3,3,3,4 — bench, press, dip, bench, press,
+# dip... The screen showed a scrambled workout, and every test passed, because NO TEST
+# COVERED A DAY WITH MORE THAN ONE EXERCISE. That gap is the actual defect here; the
+# ordering was only its symptom.
+#
+# The fix is the stored `position` column. This test is what makes it real: it fails
+# against the old `order by pd.day_date, pi.set_number` and passes against the new one,
+# which was verified by reverting the ORDER BY and watching it go red.
+@requires_rls_db
+async def test_a_days_exercises_come_back_grouped_in_template_order(client: AsyncClient) -> None:
+    from app.db.pool import close_pool, create_pool
+
+    admin = _require_admin_dsn()
+    a = uuid.uuid4()
+    pool = await create_pool(os.environ["RLS_DATABASE_URL"])
+    try:
+        await _admin_seed_users(admin, a)
+        first, second, third = await _admin_catalog_names(admin, 3)
+
+        # One training day, three movements, set_number restarting per movement — the exact
+        # shape the live model returns. The interleaving only appears with >1 exercise, so a
+        # single-exercise fixture (which is what the rest of this file uses) cannot see it.
+        day = {
+            "focus": "push",
+            "items": [
+                {"exercise": name, "set_number": n, "reps": 5, "weight_kg": "60"}
+                for name, sets in ((first, 4), (second, 3), (third, 3))
+                for n in range(1, sets + 1)
+            ],
+        }
+
+        class _MultiExercisePlanner:
+            calls = 0
+
+            async def plan(self, *args: Any, **kwargs: Any) -> Any:
+                from app.schemas.plans import PlanTemplate
+
+                return PlanTemplate.model_validate(
+                    {
+                        "days": [day] + [{"focus": "rest", "items": []}] * 6,
+                        "calories_target": "2400",
+                        "protein_g_target": "180",
+                        "carbs_g_target": "250",
+                        "fat_g_target": "70",
+                        "progression_note": "Add 2.5 kg each week; week 4 deloads.",
+                    }
+                )
+
+        _sign_in_as(a, pool, _MultiExercisePlanner())
+        assert (await client.post("/plans", json={"weeks": 4})).status_code == 201
+
+        resp = await client.get("/plans/current")
+        assert resp.status_code == 200
+
+        training = [d for d in resp.json()["days"] if d["items"]]
+        assert len(training) == 4  # one training day per week of a 4-week plan
+
+        expected = [first] * 4 + [second] * 3 + [third] * 3
+        for stored_day in training:
+            got = [item["exercise_name"] for item in stored_day["items"]]
+            assert got == expected, (
+                "a day's exercises came back interleaved rather than grouped in the order "
+                f"the model wrote them:\n  got      {got}\n  expected {expected}"
+            )
+            # ...and each movement's sets are still in ascending set order within its group.
+            assert [item["set_number"] for item in stored_day["items"]] == [
+                1,
+                2,
+                3,
+                4,
+                1,
+                2,
+                3,
+                1,
+                2,
+                3,
+            ]
+    finally:
+        await _admin_delete_users(admin, a)
+        await close_pool(pool)

@@ -34,6 +34,8 @@ function Plan() {
   const [loading, setLoading] = useState(true)
   const [loadFailed, setLoadFailed] = useState(false)
   const [generating, setGenerating] = useState(false)
+  // Separate from `loadFailed` on purpose — see the catch in `generate()`.
+  const [generateFailed, setGenerateFailed] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -69,12 +71,20 @@ function Plan() {
     // rule out, and the thing being protected is a Sonnet call, not a round trip.
     if (!view.canGenerate) return
     setGenerating(true)
-    setLoadFailed(false)
+    setGenerateFailed(false)
     try {
       setPlan(await api.createPlan(4))
     } catch (err) {
       if (errorAction(err).kind === 'sign-out') void signOut()
-      else setLoadFailed(true)
+      // ⚠️ NOT `setLoadFailed` — A FAILED WRITE IS NOT A FAILED READ.
+      // It used to be, and the result was the #43 state-collapse this file exists to
+      // avoid, one layer up: `planView` tests `loadFailed` BEFORE `plan`, so a user who
+      // already had a program and hit a 503 from the planner watched their whole plan
+      // vanish, replaced by "Couldn't load your plan" — and the Try again beside it called
+      // `load()`, re-fetching a plan that had never failed to load. The plan was on the
+      // server the entire time. A generation failure is now its own flag, rendered next to
+      // the plan the user still has, with a retry that retries the thing that failed.
+      else setGenerateFailed(true)
     } finally {
       setGenerating(false)
     }
@@ -151,6 +161,13 @@ function Plan() {
           {view.kind === 'plan' && (
             <p className="font-mono text-xs text-fg-muted">
               This replaces the plan above. The old one is archived, not deleted.
+            </p>
+          )}
+          {/* A failed WRITE, reported where the write was started and without disturbing
+              whatever the user already has on screen above. */}
+          {generateFailed && !generating && (
+            <p role="alert" className="font-mono text-xs text-fg-muted">
+              Couldn’t write your plan. Nothing was changed — try again.
             </p>
           )}
         </div>

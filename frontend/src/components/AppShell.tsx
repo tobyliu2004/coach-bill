@@ -55,15 +55,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-dvh flex-col">
       <header className="border-b border-edge">
-        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3 sm:flex-nowrap sm:gap-x-8 sm:px-6 sm:py-4">
-          <span className="mr-auto font-display text-lg font-semibold tracking-tight text-fg sm:mr-0">
+        <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3 sm:gap-x-8 sm:px-6 sm:py-4 md:flex-nowrap">
+          <span className="mr-auto font-display text-lg font-semibold tracking-tight text-fg md:mr-0">
             Coach Bill
           </span>
 
           {/* Last on a narrow screen (its own full-width line), second on a wide one. The
               negative margin lets the scrolled edges bleed to the viewport instead of
               stopping short of the padding, so a cut-off label reads as scrollable. */}
-          <nav className="order-last -mx-4 w-full overflow-x-auto px-4 sm:order-none sm:mx-0 sm:w-auto sm:overflow-visible sm:px-0">
+          <nav className="order-last -mx-4 w-full overflow-x-auto px-4 md:order-none md:mx-0 md:w-auto md:overflow-visible md:px-0">
             <div className="flex items-center gap-5">
               <AppNavLink to="/app">Today</AppNavLink>
               <AppNavLink to="/plan">Plan</AppNavLink>
@@ -73,11 +73,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             </div>
           </nav>
 
-          <div className="flex items-center gap-4 sm:ml-auto">
+          <div className="flex items-center gap-4 md:ml-auto">
             {/* Truncated rather than hidden: on a phone this is the only confirmation of
                 WHICH account you are looking at, and a long email must not push Sign out
                 off the edge — the failure this whole change is about. */}
-            <span className="max-w-[10rem] truncate font-mono text-xs text-fg-muted sm:max-w-none">
+            <span className="max-w-[10rem] truncate font-mono text-xs text-fg-muted md:max-w-[16rem] lg:max-w-none">
               {name}
             </span>
             <button

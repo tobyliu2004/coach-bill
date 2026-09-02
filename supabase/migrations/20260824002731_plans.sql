@@ -126,6 +126,17 @@ create table public.plan_items (
   -- under a plan. Row 3: a name the catalog does not know resolves to NULL in
   -- `resolve_exercise` and the ITEM is dropped before it ever gets here — the day survives.
   exercise_id uuid not null references public.exercises (id),
+
+  -- ⚠️ THE DAY'S ORDER, AND IT CANNOT BE DERIVED FROM ANYTHING ELSE HERE.
+  -- `set_number` restarts at 1 for each exercise — verified against the live model: a push
+  -- day comes back as bench 1,2,3,4 then overhead press 1,2,3 then dip 1,2,3. So ordering a
+  -- day by `set_number` interleaves them (bench, press, dip, bench, press, dip...) and the
+  -- screen shows a scrambled workout. `created_at` cannot break the tie either: every row
+  -- of a plan is written by one `now()` in one transaction, so they are all equal, and a
+  -- Postgres sort is not stable. `id` is a random uuid.
+  -- Hence a stored ordinal: the item's index within its day, as the model wrote it.
+  position    smallint not null check (position >= 0),
+
   set_number  smallint not null check (set_number > 0),
   reps        smallint not null check (reps >= 0),
 

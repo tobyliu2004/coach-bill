@@ -42,17 +42,19 @@ class MaterializedItemRow:
     `db/` is the layer that owns it.
     """
 
-    __slots__ = ("exercise_id", "reps", "set_number", "weight_kg")
+    __slots__ = ("exercise_id", "position", "reps", "set_number", "weight_kg")
 
     def __init__(
         self,
         *,
         exercise_id: UUID,
+        position: int,
         set_number: int,
         reps: int,
         weight_kg: Decimal | None,
     ) -> None:
         self.exercise_id = exercise_id
+        self.position = position
         self.set_number = set_number
         self.reps = reps
         self.weight_kg = weight_kg
@@ -138,12 +140,12 @@ async def get_plan_items(pool: asyncpg.Pool, user_id: UUID, plan_id: UUID) -> li
     async with authed_conn(pool, user_id) as conn:
         rows: list[asyncpg.Record] = await conn.fetch(
             "select pi.id, pi.plan_day_id, pi.exercise_id, e.name as exercise_name, "
-            "       pi.set_number, pi.reps, pi.weight_kg "
+            "       pi.position, pi.set_number, pi.reps, pi.weight_kg "
             "  from public.plan_items pi "
             "  join public.plan_days pd on pd.id = pi.plan_day_id "
             "  join public.exercises e on e.id = pi.exercise_id "
             " where pi.user_id = $1 and pd.user_id = $1 and pd.plan_id = $2 "
-            " order by pd.day_date, pi.set_number",
+            " order by pd.day_date, pi.position",
             user_id,
             plan_id,
         )
@@ -155,8 +157,20 @@ async def resolve_item_exercises(
 ) -> dict[str, UUID | None]:
     """Catalog ids for `names`, resolving aliases; None for a name the catalog lacks.
 
-    Takes a live `conn` rather than the pool, so resolution happens inside the SAME
-    transaction as the write that uses the ids — the shape `db/facts.py` already uses.
+    Takes a live `conn` rather than the pool, so the CALLER chooses the transaction — the
+    shape `db/facts.py` already uses.
+
+    ⚠️ AND TODAY THE CALLER CHOOSES A DIFFERENT ONE FROM THE WRITE. `services._resolve_days`
+    opens its own `authed_conn` for resolution and closes it; `insert_plan` then opens a
+    second for the write. This docstring used to claim resolution happened "inside the SAME
+    transaction as the write that uses the ids", which was simply not true as wired — the
+    kind of comment a future reader trusts instead of checking.
+
+    Harmless as it stands, and that is a property of `exercises`, not of this code:
+    `exercises` is the one ownerless table and has NO WRITE PATH AT ALL (#19), so a
+    resolved id cannot be deleted or repointed between the two transactions. If the catalog
+    ever gains a write path, this gap becomes real and the resolution has to move inside
+    `insert_plan`'s transaction.
 
     Deduplicated: a week of "bench press" across four days is one lookup, not four. (#19's
     known cost — one lookup per set — is not repeated here.)
@@ -252,6 +266,7 @@ async def insert_plan(
         id_of_date = {row["day_date"]: row["id"] for row in day_ids}
         item_day_ids: list[UUID] = []
         item_exercise_ids: list[UUID] = []
+        item_positions: list[int] = []
         item_set_numbers: list[int] = []
         item_reps: list[int] = []
         item_weights: list[Decimal | None] = []
@@ -260,6 +275,7 @@ async def insert_plan(
             for item in day.items:
                 item_day_ids.append(day_id)
                 item_exercise_ids.append(item.exercise_id)
+                item_positions.append(item.position)
                 item_set_numbers.append(item.set_number)
                 item_reps.append(item.reps)
                 item_weights.append(item.weight_kg)
@@ -270,18 +286,20 @@ async def insert_plan(
         if item_day_ids:
             await conn.execute(
                 "insert into public.plan_items "
-                "  (user_id, plan_day_id, exercise_id, set_number, reps, weight_kg) "
-                "select $1, i.plan_day_id, i.exercise_id, i.set_number, i.reps, i.weight_kg "
+                "  (user_id, plan_day_id, exercise_id, position, set_number, reps, weight_kg) "
+                "select $1, i.plan_day_id, i.exercise_id, i.position, i.set_number, i.reps, "
+                "       i.weight_kg "
                 "  from unnest($2::uuid[], $3::uuid[], $4::smallint[], $5::smallint[], "
-                "              $6::numeric[]) "
-                "         as i(plan_day_id, exercise_id, set_number, reps, weight_kg) "
+                "              $6::smallint[], $7::numeric[]) "
+                "         as i(plan_day_id, exercise_id, position, set_number, reps, weight_kg) "
                 " where exists ( "
                 "         select 1 from public.plan_days pd "
-                "          where pd.plan_id = $7 and pd.user_id = $1 "
+                "          where pd.plan_id = $8 and pd.user_id = $1 "
                 "       )",
                 user_id,
                 item_day_ids,
                 item_exercise_ids,
+                item_positions,
                 item_set_numbers,
                 item_reps,
                 item_weights,

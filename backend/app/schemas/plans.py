@@ -51,8 +51,16 @@ class TemplateItem(BaseModel):
     # None and the ITEM is dropped, the day surviving (row 3) — never invented, never
     # inserted. `exercises` has no write path at all (#19).
     exercise: str
-    set_number: int = Field(ge=1)
-    reps: int = Field(ge=0)
+    # ⚠️ BOUNDED ABOVE, AND THE UPPER BOUND IS THE LOAD-BEARING HALF.
+    # Both columns are `smallint`. Unbounded here, a model returning `reps: 40000` passes
+    # validation, escapes the `try/except -> PlannerUnavailable` in `services.create_plan`
+    # (which wraps ONLY the model call), and then dies inside `insert_plan` as an asyncpg
+    # encode error no handler catches — a 500 after the call was already paid for, where
+    # row 2's design says a bad template is a 503 with nothing stored. The boundary only
+    # holds if everything the model can send is checked AT the boundary, not just the
+    # calorie floor. 200 is well past any real prescription and far inside smallint.
+    set_number: int = Field(ge=1, le=200)
+    reps: int = Field(ge=0, le=200)
     # NULLABLE, never 0. A bodyweight movement has no external load; 0 would tell the user
     # they are planned to lift nothing. Same rule as `workout_sets.weight_kg` and the same
     # null-vs-zero doctrine whose violation shipped as "peak 0 lb" on /trends.

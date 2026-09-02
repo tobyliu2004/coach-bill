@@ -1565,3 +1565,71 @@ def test_the_fake_insert_router_understands_the_bulk_shapes() -> None:
     # ...and a shape it cannot read is LOUD, never a silently wrong answer.
     with pytest.raises(_FakeSqlError):
         _parse_insert("insert into public.plan_days select * from somewhere_else", ())
+
+
+# =====================================================================================
+# I. Regression — the plan reaches the coach collapsed, not one line per set
+# =====================================================================================
+#
+# ⚠️ NOT AN AC ROW, AND ADDED AFTER THE IMPLEMENTATION — said out loud, like the ordering
+# regression in test_plans_db.py, because the oracle rules make that distinction matter.
+# Nothing frozen is touched: this pins a NEW pure helper.
+#
+# Found by `/code-review high` on PR #55. `plan_items` stores ONE ROW PER SET, which is
+# deliberate (planned-vs-actual becomes a SQL join instead of a parser). Rendered literally
+# into the coach context that meant `bench press 8 reps @ 60 kg; bench press 8 reps @ 60 kg;
+# bench press 8 reps @ 60 kg` — several thousand tokens on EVERY reply for a 4-week plan,
+# double that at the legal maximum of 8, and phrasing no lifter would ever use.
+#
+# The must-NOT-merge cases are the load-bearing ones. Collapsing is only safe if it cannot
+# reorder a day or merge across a movement boundary, because after the `position` fix the
+# stored order is the order Bill wrote it in and the model is being asked to coach against
+# that exact sequence.
+def test_the_plan_section_collapses_only_consecutive_identical_sets() -> None:
+    import uuid as _uuid
+    from decimal import Decimal as _D
+
+    from app.schemas.plans import PlanItemOut
+    from app.services.coach import _collapsed_sets
+
+    def _it(name: str, reps: int, weight: str | None) -> PlanItemOut:
+        return PlanItemOut(
+            id=_uuid.uuid4(),
+            plan_day_id=_uuid.uuid4(),
+            exercise_id=_uuid.uuid4(),
+            exercise_name=name,
+            set_number=1,
+            reps=reps,
+            weight_kg=None if weight is None else _D(weight),
+        )
+
+    # MUST COLLAPSE — the shape that motivated this.
+    assert _collapsed_sets([_it("bench press", 8, "60")] * 3 + [_it("ohp", 10, "40")] * 2) == [
+        "3 x bench press 8 reps @ 60 kg",
+        "2 x ohp 10 reps @ 40 kg",
+    ]
+
+    # A single set is written bare — "1 x bench press" is noise, not information.
+    assert _collapsed_sets([_it("bench press", 8, "60")]) == ["bench press 8 reps @ 60 kg"]
+
+    # A rest day's empty list stays empty (the caller says "no prescribed work").
+    assert _collapsed_sets([]) == []
+
+    # ⚠️ MUST NOT MERGE — identical sets that are NOT adjacent. Merging these would silently
+    # reorder the day, which is exactly what the `position` column was added to prevent.
+    assert _collapsed_sets([_it("bench", 5, "60"), _it("row", 8, None), _it("bench", 5, "60")]) == [
+        "bench 5 reps @ 60 kg",
+        "row 8 reps",
+        "bench 5 reps @ 60 kg",
+    ]
+
+    # ⚠️ MUST NOT MERGE — same movement, different prescription. A back-off set collapsed
+    # into the work above it would tell the user to do the wrong weight.
+    assert _collapsed_sets([_it("bench", 8, "60")] * 2 + [_it("bench", 5, "70")]) == [
+        "2 x bench 8 reps @ 60 kg",
+        "bench 5 reps @ 70 kg",
+    ]
+
+    # A bodyweight movement carries no load and must not grow a "@ 0 kg" — the null-vs-zero
+    # doctrine that shipped as "peak 0 lb" on /trends.
+    assert _collapsed_sets([_it("pull-up", 8, None)] * 3) == ["3 x pull-up 8 reps"]
