@@ -4,9 +4,29 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Coach Bill — your AI fitness coach. Say your workout out loud; get it logged, tracked, and coached." />
+    <meta name="description" content="Coach Bill — your AI fitness coach. Type one line after you train; get it logged, tracked, and coached by someone who remembers every session." />
     <meta name="theme-color" content="#0d0d10" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>Coach Bill — AI fitness coach</title>
+
+    <!-- Social preview; og.png is generated, not drawn (design/og/README.md).
+         Shared by every route, which is right for og:* (the card describes the
+         product) but is WHY there is no rel=canonical here: canonical is a
+         per-URL claim, and one hardcoded to / would tell crawlers that /login
+         and any future public page are duplicates of the homepage. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://coachbill.fit/" />
+    <meta property="og:site_name" content="Coach Bill" />
+    <meta property="og:title" content="Coach Bill — the coach who remembers every rep." />
+    <meta property="og:description" content="Type one line after you train. Bill logs it, tracks it, and coaches you like he's known you for months — because he has." />
+    <meta property="og:image" content="https://coachbill.fit/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="The headline &quot;The coach who remembers every rep.&quot; beside a lifter rendered as dense scanlines of monospaced glyphs." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Coach Bill — the coach who remembers every rep." />
+    <meta name="twitter:description" content="Type one line after you train. Bill logs it, tracks it, and coaches you like he's known you for months — because he has." />
+    <meta name="twitter:image" content="https://coachbill.fit/og.png" />
   </head>
   <body>
     <div id="root"></div>
