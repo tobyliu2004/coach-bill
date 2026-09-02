@@ -77,7 +77,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             {/* Truncated rather than hidden: on a phone this is the only confirmation of
                 WHICH account you are looking at, and a long email must not push Sign out
                 off the edge — the failure this whole change is about. */}
-            <span className="max-w-[10rem] truncate font-mono text-xs text-fg-muted md:max-w-[16rem] lg:max-w-none">
+            <span className="max-w-40 truncate font-mono text-xs text-fg-muted md:max-w-64 lg:max-w-none">
               {name}
             </span>
             <button

@@ -38,7 +38,11 @@ create table public.plans (
   -- A 422 here would put a profile field on the demo's happy path.
   goal_snapshot    text,
 
-  progression_note text not null,
+  -- NOT NULL is not enough: a prompt regression can send "", which is not null and is
+  -- not a progression note either. Same argument the `calories_target` CHECK below
+  -- makes at length -- a prompt is not code and nothing type-checks it -- so it gets
+  -- the same third lock rather than resting on a live-model row that never runs in CI.
+  progression_note text not null check (length(btrim(progression_note)) > 0),
 
   -- ⚠️ ROW 2'S FLOOR, AND IT IS DELIBERATELY THE THIRD COPY OF THE SAME RULE.
   -- `COACH_SYSTEM_PROMPT` forbids naming a target below 1200/day, Pydantic rejects it with
@@ -90,9 +94,15 @@ create table public.plan_days (
 
   -- Row 4: a day whose every item was dropped still stores, with zero items, and is NOT
   -- silently converted to a rest day. `focus` is NOT NULL so "the model said push and we
-  -- resolved nothing" and "the model said rest" stay different facts. Row L4 checks the
-  -- model never sends an empty string in the first place.
-  focus       text not null,
+  -- resolved nothing" and "the model said rest" stay different facts.
+  --
+  -- NOT NULL alone does not get that, which is why the CHECK is here: '' is not null and is
+  -- not a focus either, and it COLLAPSES the two facts row 4 exists to keep apart -- the
+  -- screen renders a dated row with no label and no items, and the coach is handed
+  -- `- 2026-09-02 (, not logged): no prescribed work`. Row L4 asks the model not to send
+  -- one; this is what holds when the model does it anyway, and L4 is a live-model row that
+  -- never runs in CI. Same third-lock argument as `calories_target` above.
+  focus       text not null check (length(btrim(focus)) > 0),
   created_at  timestamptz not null default now(),
 
   -- Row 6: no duplicates. `materialize` emits one row per date, so a second row for the

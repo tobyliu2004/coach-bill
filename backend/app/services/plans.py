@@ -19,7 +19,6 @@ from app.ai.planner import Planner
 from app.db import plans as plans_db
 from app.db.plans import MaterializedDayRow, MaterializedItemRow
 from app.db.profiles import get_user_goal, get_user_timezone
-from app.db.session import authed_conn
 from app.schemas.plans import (
     DAYS_PER_WEEK,
     PlanDayOut,
@@ -159,8 +158,19 @@ async def create_plan(pool: asyncpg.Pool, user_id: UUID, weeks: int, planner: Pl
             fat_g_target=template.fat_g_target,
             days=rows,
         )
-    except asyncpg.UniqueViolationError:
-        # ⚠️ ROW 15 — CONVERGE, DO NOT CRASH. Two concurrent requests both found no active
+    except asyncpg.UniqueViolationError as exc:
+        # ⚠️ CONVERGE ON *THIS* CONSTRAINT ONLY, NEVER ON "a unique violation happened".
+        # `plan_days` also carries `unique (plan_id, day_date)`. If that one ever fired, the
+        # whole transaction would roll back — nothing stored, the archive undone — and the
+        # convergence below would hand the caller `get_current_plan()`, i.e. their OLD plan,
+        # under a 201. They asked for a new program and would get a success code and last
+        # month's training, with an `info` log as the only trace. `materialize` cannot emit a
+        # duplicate date today, so this is defensive; the reason it is worth two lines is
+        # that a rolled-back transaction is indistinguishable from a successful one to the
+        # caller unless you look at WHICH constraint blew up.
+        if exc.constraint_name != "plans_one_active_per_user":
+            raise
+        # ROW 15 — CONVERGE, DO NOT CRASH. Two concurrent requests both found no active
         # plan and both tried to insert; `plans_one_active_per_user` let exactly one
         # through. The loser reads the winner's plan and returns it, so both callers see the
         # SAME plan and there is exactly one active row — the same move #21 made for
@@ -198,9 +208,8 @@ async def _resolve_days(
     training day is a gap the user can see and ask about, while a day relabelled "rest"
     would be the app telling them something false about their own program.
     """
-    async with authed_conn(pool, user_id) as conn:
-        names = [name for day in days for name, _n, _r, _w in day.items]
-        catalog = await plans_db.resolve_item_exercises(conn, names)
+    names = [name for day in days for name, _n, _r, _w in day.items]
+    catalog = await plans_db.resolve_item_exercises(pool, user_id, names)
 
     rows: list[MaterializedDayRow] = []
     for day in days:

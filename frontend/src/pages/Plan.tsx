@@ -5,7 +5,7 @@ import { ApiError, type Plan as PlanPayload, type PlanDay } from '../lib/api'
 import { errorAction } from '../lib/checkInView'
 import { api } from '../lib/client'
 import { monthDay } from '../lib/dates'
-import { formatWeight } from '../lib/formatFacts'
+import { toSetLines } from '../lib/formatFacts'
 import { planRequest, planView } from '../lib/plan'
 
 /**
@@ -38,6 +38,10 @@ function Plan() {
   const [generateFailed, setGenerateFailed] = useState(false)
 
   const load = useCallback(async () => {
+    // Set on every call, not just the first mount: without it "Try again" on a slow
+    // or still-broken network leaves the same error text sitting there and the screen
+    // never answers the click. The #43/#46 family, one notch down.
+    setLoading(true)
     try {
       setPlan(await api.getCurrentPlan())
       setLoadFailed(false)
@@ -235,13 +239,20 @@ function Day({ day, isToday, unit }: { day: PlanDay; isToday: boolean; unit: 'lb
           )}
         </div>
         {day.items.length > 0 && (
-          <ul className="flex flex-col gap-0.5">
-            {day.items.map((item) => (
-              <li key={item.id} className="font-mono text-xs tabular-nums text-fg-muted">
-                {item.exercise_name} · {item.reps} reps
+          /* COLLAPSED, via the SAME helper /history uses. `plan_items` stores one row per
+             SET — right for the database, wrong for a person: 3x8 bench rendered literally
+             is three byte-identical lines the reader cannot tell apart, and a 4-week plan
+             is several hundred of them on one page. `toSetLines`' own docstring already
+             settled this for logged sets ("not how anyone reads their own log"); /history
+             collapsed and /plan did not. `PlanItem` is a structural superset of
+             `WorkoutSet`, so this is reuse, not a second implementation that can drift. */
+          <ul className="flex flex-col gap-1">
+            {toSetLines(day.items, unit).map((line) => (
+              <li key={line.key} className="font-mono text-xs tabular-nums text-fg-muted">
+                {line.exercise} · {line.volume}
                 {/* null, not 0 — a bodyweight movement has no load to print, and "0 lb"
                     would be this feature's own null-vs-zero lie (the "peak 0 lb" bug). */}
-                {item.weight_kg !== null && ` · ${formatWeight(item.weight_kg, unit)}`}
+                {line.load !== null && ` · ${line.load}`}
               </li>
             ))}
           </ul>

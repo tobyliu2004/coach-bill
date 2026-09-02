@@ -29,8 +29,14 @@ const MACROS: { key: keyof DietMeasures; label: string; unit: string }[] = [
 
 function Diet() {
   const { profile, signOut } = useAuth()
-  // THE #40 SEAM: which window, and whose "today". One tested decision, passed the instant.
-  const { days, today } = dietRequest(profile ?? null, new Date())
+  // THE #40 SEAM: which window is requested. One tested decision, passed the instant.
+  //
+  // `dietRequest` also returns `today`, and this screen deliberately does NOT read it: the
+  // day to match on comes from `trends.end_date`, the window the SERVER resolved and echoed
+  // back (see `todaysIntake` below). That leaves `.today` returned-but-unread here, which is
+  // the same state PROGRESS.md already records for `trendsRequest`/`todayRequest` — the
+  // residual half of #40, and a smaller problem than two sides computing "today" apart.
+  const { days } = dietRequest(profile ?? null, new Date())
 
   const [trends, setTrends] = useState<Trends | null>(null)
   const [plan, setPlan] = useState<Parameters<typeof dietView>[0]['plan']>(null)
@@ -38,6 +44,10 @@ function Diet() {
   const [loadFailed, setLoadFailed] = useState(false)
 
   const load = useCallback(async () => {
+    // Set on every call, not just the first mount: without it "Try again" on a slow
+    // or still-broken network leaves the same error text sitting there and the screen
+    // never answers the click. The #43/#46 family, one notch down.
+    setLoading(true)
     try {
       // Both at once. The two are independent — having no plan must not stop the food
       // showing, which is the whole of row 19.
@@ -69,7 +79,16 @@ function Diet() {
   // "they logged nothing", not "we failed". `dietView` turns that into a rendered 0 against
   // the target, and that two-layer split is rows 20/21 (see lib/plan.ts).
   const view =
-    trends === null ? null : dietView({ plan, consumed: todaysIntake(trends.nutrition, today) })
+    trends === null
+      ? null
+      : // ⚠️ `trends.end_date`, NOT the client's `today`. `TrendsOut` echoes the window
+        // back precisely so the client never recomputes it — the #40 drift class, which
+        // /trends already follows. They agree in practice, but a render that crosses
+        // local midnight before the response lands would have the server resolve D+1 and
+        // the client look for D: `todaysIntake` returns null and the screen shows
+        // `0 / 2400` for a day the user HAS logged food on — the null-vs-zero collapse
+        // this screen is otherwise built to avoid.
+        dietView({ plan, consumed: todaysIntake(trends.nutrition, trends.end_date) })
 
   return (
     <AppShell>

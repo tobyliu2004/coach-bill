@@ -73,7 +73,10 @@ class TemplateDay(BaseModel):
     # NOT NULL and never empty — row L4 checks the model honours that, and row 4 depends on
     # it: a day whose every item was dropped still stores WITH ITS FOCUS, so "we planned
     # push and resolved nothing" stays distinguishable from "we planned rest".
-    focus: str
+    # `min_length=1` mirrors the DB CHECK. Two locks, the doctrine this feature already
+    # applies to the calorie floor: Pydantic gives a 503 with nothing stored, the CHECK
+    # makes it impossible even if this boundary is ever bypassed.
+    focus: str = Field(min_length=1)
     items: list[TemplateItem] = Field(default_factory=list)
 
 
@@ -96,7 +99,7 @@ class PlanTemplate(BaseModel):
 
     # One line the user reads on the plan screen. Row L2 checks it describes actual
     # progression across weeks rather than restating week 1.
-    progression_note: str
+    progression_note: str = Field(min_length=1)
 
 
 class PlanCreate(BaseModel):

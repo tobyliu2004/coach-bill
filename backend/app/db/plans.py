@@ -153,33 +153,38 @@ async def get_plan_items(pool: asyncpg.Pool, user_id: UUID, plan_id: UUID) -> li
 
 
 async def resolve_item_exercises(
-    conn: asyncpg.Connection, names: list[str]
+    pool: asyncpg.Pool, user_id: UUID, names: list[str]
 ) -> dict[str, UUID | None]:
     """Catalog ids for `names`, resolving aliases; None for a name the catalog lacks.
 
-    Takes a live `conn` rather than the pool, so the CALLER chooses the transaction — the
-    shape `db/facts.py` already uses.
+    ⚠️ TAKES THE POOL, NOT A LIVE `conn`, AND OPENS ITS OWN `authed_conn` — because THIS
+    IS THE ONLY LAYER ALLOWED TO (`backend.md`: "db/ — the only layer that touches
+    Postgres"). It used to take a `conn`, which meant `services/plans.py` had to import
+    `app.db.session` and open the transaction itself — the only service in the codebase
+    doing that (`profiles`, `check_ins`, `extraction`, `trends`, `coach` and `health` all
+    call `db.<feature>` functions and nothing else). A new precedent, not an existing one.
 
-    ⚠️ AND TODAY THE CALLER CHOOSES A DIFFERENT ONE FROM THE WRITE. `services._resolve_days`
-    opens its own `authed_conn` for resolution and closes it; `insert_plan` then opens a
-    second for the write. This docstring used to claim resolution happened "inside the SAME
-    transaction as the write that uses the ids", which was simply not true as wired — the
-    kind of comment a future reader trusts instead of checking.
+    ⚠️ AND IT IS A SEPARATE TRANSACTION FROM THE WRITE. `insert_plan` opens its own. This
+    docstring used to claim resolution happened "inside the SAME transaction as the ids'
+    write", which was never true as wired — the kind of comment a reader trusts instead of
+    checking.
 
-    Harmless as it stands, and that is a property of `exercises`, not of this code:
-    `exercises` is the one ownerless table and has NO WRITE PATH AT ALL (#19), so a
-    resolved id cannot be deleted or repointed between the two transactions. If the catalog
-    ever gains a write path, this gap becomes real and the resolution has to move inside
-    `insert_plan`'s transaction.
+    Harmless, and that is a property of `exercises` rather than of this code: it is the one
+    ownerless table and has NO WRITE PATH AT ALL (#19), so a resolved id cannot be deleted
+    or repointed between the two transactions. If the catalog ever gains one, this gap
+    becomes real and resolution has to move inside `insert_plan`'s transaction — which is
+    the other fix for the layering slip, and a bigger one, since `insert_plan` would then
+    take names instead of resolved ids.
 
     Deduplicated: a week of "bench press" across four days is one lookup, not four. (#19's
     known cost — one lookup per set — is not repeated here.)
     """
     resolved: dict[str, UUID | None] = {}
-    for name in names:
-        if name in resolved:
-            continue
-        resolved[name] = await resolve_exercise(conn, name)
+    async with authed_conn(pool, user_id) as conn:
+        for name in names:
+            if name in resolved:
+                continue
+            resolved[name] = await resolve_exercise(conn, name)
     return resolved
 
 
@@ -292,9 +297,19 @@ async def insert_plan(
                 "  from unnest($2::uuid[], $3::uuid[], $4::smallint[], $5::smallint[], "
                 "              $6::smallint[], $7::numeric[]) "
                 "         as i(plan_day_id, exercise_id, position, set_number, reps, weight_kg) "
+                # ⚠️ CORRELATED ON `pd.id = i.plan_day_id`, AND THE CORRELATION IS THE GUARD.
+                # This read `where pd.plan_id = $8 and pd.user_id = $1`, which proves only
+                # that SOME day of this plan is the caller's — the per-row parent id was
+                # never mentioned, so the rule-4 guard was structurally blind while both the
+                # docstring and row 12's scanner reported it as fenced (the scanner looks for
+                # a contiguous `pd.user_id = $1`, which was present). Not exploitable today,
+                # because these ids come from the `returning` of the insert two statements
+                # up; the point is that the net was decorative, so the day someone appends
+                # items to a client-named `plan_day_id` it would have kept saying "covered".
                 " where exists ( "
                 "         select 1 from public.plan_days pd "
-                "          where pd.plan_id = $8 and pd.user_id = $1 "
+                "          where pd.id = i.plan_day_id and pd.plan_id = $8 "
+                "            and pd.user_id = $1 "
                 "       )",
                 user_id,
                 item_day_ids,

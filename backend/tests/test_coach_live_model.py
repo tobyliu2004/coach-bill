@@ -372,13 +372,16 @@ async def test_i48_row18_dashboard_request_is_answered_honestly_and_still_coache
     # a plan/program word within a few words of a surface word. Two axes and a bounded gap,
     # the same shape as the inability rule below, and self-tested in both directions by
     # `test_amendment9_row18_subject_rule_rejects_a_reply_that_never_addresses_it`.
-    plan_word = r"(plan|program)"
-    surface = r"(dashboard|screen|tab|page|app)"
-    subject = rf"({plan_word}\W+(\w+\W+){{0,3}}{surface}|{surface}\W+(\w+\W+){{0,3}}{plan_word})"
-    assert re.search(subject, lowered), (
+    # ⚠️ CALLS THE SHARED HELPER — the assertion and its self-test must be ONE rule.
+    # These two regexes used to be declared here AND re-declared verbatim inside
+    # `_row18_subject_matches`, so the must-pass/must-fail self-test proved a COPY: editing
+    # one and not the other would leave the self-test green while this assertion changed
+    # meaning. That is the "an assertion nobody has watched reject anything" failure with an
+    # extra step. Amendments 10 and 11 already share their helpers; this is now consistent.
+    assert _row18_subject_matches(reply), (
         f"the reply never addresses what the user actually asked about — it names no place "
-        f"in the app where a plan lives (expected {plan_word} within a few words of "
-        f"{surface}):\n{reply}"
+        f"in the app where a plan lives (expected {_PLAN_WORD} within a few words of "
+        f"{_PLAN_SURFACE}):\n{reply}"
     )
     # AMENDED after the oracle commit (98a0a30), approved by Toby before the change and
     # recorded on the issue. This one changes the SHAPE of the assertion, not just its
@@ -484,12 +487,12 @@ async def test_i48_row19_a_code_request_is_declined_in_one_line() -> None:
     #
     # Nothing else about this row moves: `steers`, `_substance_hits` and the no-code check all
     # still apply, so a reply that declines and helps with nothing still fails.
-    negation = r"(not|n't|cannot|won'?t|don'?t)"
-    scope = r"(what i\b|i'?m for\b|i do\b|here for\b|my lane\b|code\b|script\b)"
-    assert re.search(rf"{negation}\W+(\w+\W+){{0,3}}{scope}", lowered), (
-        f"the reply neither declines nor writes the script (expected a negation — {negation} "
-        f"— within a few words of the speaker's scope or the request itself — {scope}); "
-        f"row 19 is 'one honest sentence, no apology paragraph':\n{reply}"
+    # Shared helper, for the reason given at row 18's assertion above.
+    assert _row19_decline_matches(reply), (
+        f"the reply neither declines nor writes the script (expected a negation — "
+        f"{_DECLINE_NEGATION} — within a few words of the speaker's scope or the request "
+        f"itself — {_DECLINE_SCOPE}); row 19 is 'one honest sentence, no apology "
+        f"paragraph':\n{reply}"
     )
 
     steers = (
@@ -705,19 +708,25 @@ def _decline_sentence_count(reply: str) -> int:
 # nothing — they call no model.
 
 
+# THE SINGLE SOURCE for amendment 9's two rules. The live assertions in rows 18 and 19
+# call these, and so do the must-pass/must-fail self-tests below — which is the only
+# arrangement in which those self-tests prove anything about what actually ships.
+_PLAN_WORD = r"(plan|program)"
+_PLAN_SURFACE = r"(dashboard|screen|tab|page|app)"
+_DECLINE_NEGATION = r"(not|n't|cannot|won'?t|don'?t)"
+_DECLINE_SCOPE = r"(what i\b|i'?m for\b|i do\b|here for\b|my lane\b|code\b|script\b)"
+_GAP = r"\W+(\w+\W+){0,3}"
+
+
 def _row18_subject_matches(reply: str) -> bool:
     """Row 18's amended subject rule: does the reply name where a plan lives in the app?"""
-    plan_word = r"(plan|program)"
-    surface = r"(dashboard|screen|tab|page|app)"
-    pattern = rf"({plan_word}\W+(\w+\W+){{0,3}}{surface}|{surface}\W+(\w+\W+){{0,3}}{plan_word})"
+    pattern = rf"({_PLAN_WORD}{_GAP}{_PLAN_SURFACE}|{_PLAN_SURFACE}{_GAP}{_PLAN_WORD})"
     return re.search(pattern, reply.lower()) is not None
 
 
 def _row19_decline_matches(reply: str) -> bool:
     """Row 19's amended decline rule: does the reply refuse within its own scope?"""
-    negation = r"(not|n't|cannot|won'?t|don'?t)"
-    scope = r"(what i\b|i'?m for\b|i do\b|here for\b|my lane\b|code\b|script\b)"
-    return re.search(rf"{negation}\W+(\w+\W+){{0,3}}{scope}", reply.lower()) is not None
+    return re.search(rf"{_DECLINE_NEGATION}{_GAP}{_DECLINE_SCOPE}", reply.lower()) is not None
 
 
 def test_amendment9_row18_subject_rule_rejects_a_reply_that_never_addresses_it() -> None:
