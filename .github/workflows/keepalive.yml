@@ -1,10 +1,21 @@
 # Keep-alive ping (gap-audit item, July 2026):
 # - Supabase Free pauses the whole project after ~7 days without API activity.
-# - Render Free spins the service down after 15 min idle (~1 min cold start).
+# - Render Free spins the service down after 15 min idle.
 # One ping to /health/db exercises BOTH (Render serves it; the SELECT 1 touches Supabase).
-# Every 4 hours keeps Supabase alive; it does NOT keep Render always-warm (that would
-# burn the 750 free instance-hours/mo) — cold starts are acceptable until launch, when
-# we flip to the always-on Starter instance anyway.
+#
+# THIS IS NO LONGER THE PRIMARY KEEP-ALIVE. `worker/keepalive/` is a Cloudflare cron
+# that pings every 10 minutes, which is what actually keeps Render warm — a cold
+# /health/db measured 32.5s on 2026-09-02, and 4-hourly could never prevent that.
+# GitHub's scheduled runners are throttled and routinely fire 10-30 min late, so they
+# are structurally unfit to beat a 15-minute idle timeout.
+#
+# This workflow stays on as the BACKSTOP, and its job is now monitoring rather than
+# warming: the Worker succeeds silently and will never tell us the API is down, whereas
+# a red run here emails us. Keep it failing loudly.
+#
+# Cost note: warm 24/7 burns ~744 of Render Free's 750 instance-hours/month. It fits,
+# but it means no second free Render service. The $7 Starter plan is the clean exit,
+# and it makes the Worker redundant rather than wrong.
 
 name: keepalive
 

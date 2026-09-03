@@ -1,0 +1,13 @@
+# Keep-alive cron for the Render Free API (see worker/keepalive/index.ts).
+#
+# Why a Worker and not just the GitHub Action: GitHub's scheduled runners are
+# throttled and routinely fire 10-30 min late, which is useless against a 15-min
+# idle timeout. Cloudflare cron triggers are punctual and free.
+name = "coach-bill-keepalive"
+main = "index.ts"
+compatibility_date = "2026-09-03"
+
+# Every 10 minutes — beats Render Free's 15-minute idle spin-down with margin,
+# and survives one missed run before the service goes cold.
+[triggers]
+crons = ["*/10 * * * *"]
