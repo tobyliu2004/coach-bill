@@ -855,8 +855,41 @@ def test_row21_build_context_takes_no_pool_and_is_not_async() -> None:
 
     assert not inspect.iscoroutinefunction(build_context)
     params = inspect.signature(build_context).parameters
-    assert set(params) == {"goal", "weight_unit", "trends", "check_ins", "recent_replies"}
+
+    # 🔓 AMENDED BY AMENDMENT 6 ON ISSUE #51, APPROVED BEFORE THE EDIT.
+    #
+    #   amendment: https://github.com/tobyliu2004/coach-bill/issues/51#issuecomment-5389671955
+    #
+    # ⚠️ DIRECTION: WIDENING — THIS CAN NEWLY PASS. Named, not buried.
+    #
+    # As written for #21 this read `assert set(params) == {the five}`. #51 row 26 adds a
+    # keyword-only `plan=None`, and its own oracle asserts the parameter set INCLUDING it —
+    # so the two approved tables were directly contradictory and NO implementation could
+    # pass both. Toby ruled that this test yields.
+    #
+    # It is stricter than it was in the way that matters. The old exact-set check did not
+    # actually guarantee the thing row 21 is about: it would have accepted the five
+    # originals turning optional, which is how a caller silently stops passing one and gets
+    # a default instead of a compile-time error. The two clauses below do guarantee it, and
+    # they also close the direction this amendment opens — an extra parameter that is
+    # positional, or that has no default, still FAILS. Those are exactly the two shapes that
+    # would break #21's callers or change `build_context`'s output for them.
+    original = {"goal", "weight_unit", "trends", "check_ins", "recent_replies"}
+    assert original <= set(params), f"a required input of build_context disappeared: {params}"
     assert all(p.kind is inspect.Parameter.KEYWORD_ONLY for p in params.values())
+    for name in original:
+        assert params[name].default is inspect.Parameter.empty, (
+            f"build_context's {name!r} gained a default — it is a required input, and an "
+            "optional one lets a caller silently stop passing it"
+        )
+    for name, param in params.items():
+        if name in original:
+            continue
+        assert param.default is not inspect.Parameter.empty, (
+            f"build_context gained a REQUIRED parameter {name!r}. Every existing caller and "
+            "every frozen assertion about this function's output depends on the no-argument "
+            "form staying valid (#51 row 26: byte-identical without the new kwarg)."
+        )
 
 
 # AC row 21 (purity, half 3): it reads no clock. Every input is dated 2024, so today's date
