@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth } from '../auth/useAuth'
 import { AppShell } from '../components/AppShell'
+import { Skeleton } from '../components/Skeleton'
 import { CoachReply } from '../components/CoachReply'
 import { Facts } from '../components/Facts'
 import type { CheckIn } from '../lib/api'
@@ -71,12 +72,27 @@ function History() {
           </span>
         </div>
 
-        {/* load-failed and empty must stay distinct: "you have no check-ins" when the fetch
-            actually failed reads as data loss. Both states come from `historyView`. */}
+        {/* loading, load-failed and empty must stay distinct: "you have no check-ins" reads as
+            data loss when the fetch actually failed, and equally when it is simply still
+            running (#43). All four states come from `historyView`; `data-state` is the seam
+            a test asserts the category on, rather than matching copy. */}
+        {view.kind === 'loading' && (
+          <div data-state="loading">
+            <Skeleton label="Loading your history" count={3} />
+          </div>
+        )}
+
         {view.kind === 'load-failed' && (
-          <p role="alert" className="font-mono text-xs text-fg-muted">
-            Couldn’t load your history — refresh to try again.
-          </p>
+          // The alert lives INSIDE the state slot rather than on it: the state seam says which
+          // branch rendered, the role says what kind of thing it is, and they are separate
+          // questions. Collapsing them onto one node also hides the alert from a scoped
+          // `within(state)` query, which is how a test meant to prove the error is announced
+          // would instead prove nothing.
+          <div data-state="load-failed">
+            <p role="alert" className="font-mono text-xs text-fg-muted">
+              Couldn’t load your history — refresh to try again.
+            </p>
+          </div>
         )}
 
         {/* Scoped to the WINDOW, not the account. "Nothing here yet" would tell a returning
@@ -84,7 +100,7 @@ function History() {
             failure-reads-as-data-loss shape rows 21/22 exist to prevent, one level down.
             We only know this window is empty; we know nothing about the year before it. */}
         {view.kind === 'empty' && (
-          <div className="flex flex-col items-start gap-3">
+          <div data-state="empty" className="flex flex-col items-start gap-3">
             <p className="font-display text-display-sm text-fg">
               Nothing in the last {historyDays} days.
             </p>
@@ -95,7 +111,7 @@ function History() {
         )}
 
         {view.kind === 'days' && (
-          <div className="flex flex-col gap-8">
+          <div data-state="content" className="flex flex-col gap-8">
             {view.days.map((day) => (
               <section key={day.date} className="flex flex-col gap-3">
                 <div className="flex items-baseline justify-between">

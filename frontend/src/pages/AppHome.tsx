@@ -3,6 +3,7 @@ import { useAuth } from '../auth/useAuth'
 import { AppShell } from '../components/AppShell'
 import { CoachReply } from '../components/CoachReply'
 import { Facts } from '../components/Facts'
+import { Skeleton } from '../components/Skeleton'
 import { api } from '../lib/client'
 import type { CheckIn } from '../lib/api'
 import { errorAction, listView, todayRequest } from '../lib/checkInView'
@@ -195,17 +196,32 @@ function AppHome() {
           </p>
         )}
 
-        {/* Which state this is comes from `listView` (tested); this only renders it. The
-            load-failed and empty branches must stay distinct — "you have no check-ins" when
-            the fetch actually failed reads as data loss. */}
+        {/* Which state this is comes from `listView` (tested); this only renders it. All four
+            branches must stay distinct — "you have no check-ins" when the fetch actually
+            failed reads as data loss, and so does it when the fetch is merely still running
+            (#43). `data-state` is the seam that lets a test assert WHICH state rendered as a
+            category, instead of matching copy any screen might print. */}
+        {view.kind === 'loading' && (
+          <div data-state="loading">
+            <Skeleton label="Loading today’s check-ins" count={2} />
+          </div>
+        )}
+
         {view.kind === 'load-failed' && (
-          <p role="alert" className="font-mono text-xs text-fg-muted">
-            Couldn’t load today’s check-ins — refresh to try again.
-          </p>
+          // The alert lives INSIDE the state slot rather than on it: the state seam says which
+          // branch rendered, the role says what kind of thing it is, and they are separate
+          // questions. Collapsing them onto one node also hides the alert from a scoped
+          // `within(state)` query, which is how a test meant to prove the error is announced
+          // would instead prove nothing.
+          <div data-state="load-failed">
+            <p role="alert" className="font-mono text-xs text-fg-muted">
+              Couldn’t load today’s check-ins — refresh to try again.
+            </p>
+          </div>
         )}
 
         {view.kind === 'list' && (
-          <section className="flex flex-col gap-3">
+          <section data-state="content" className="flex flex-col gap-3">
             <div className="flex items-baseline justify-between">
               <span className="font-mono text-xs tracking-wider text-fg-muted uppercase">Today</span>
               <span className="font-mono text-xs tabular-nums text-fg-muted">
@@ -254,7 +270,7 @@ function AppHome() {
         )}
 
         {view.kind === 'empty' && (
-          <div className="flex flex-col items-start gap-3">
+          <div data-state="empty" className="flex flex-col items-start gap-3">
             <h1 className="font-display text-display-sm text-fg">Nothing logged today.</h1>
             <p className="max-w-md text-base leading-relaxed text-fg-muted">
               Type your first set above — “squat 225 5×5, slept 7h” — and it lands here.
