@@ -33,3 +33,6 @@ design/refs/*
 .DS_Store
 .idea/
 .vscode/
+
+# Cloudflare Workers local state and esbuild output (worker/*/.wrangler/).
+.wrangler/

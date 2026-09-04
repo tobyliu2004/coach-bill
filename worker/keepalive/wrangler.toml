@@ -1,4 +1,4 @@
-# Keep-alive cron for the Render Free API (see worker/keepalive/index.ts).
+# Keep-alive cron for the Render Free API (see index.ts).
 #
 # Why a Worker and not just the GitHub Action: GitHub's scheduled runners are
 # throttled and routinely fire 10-30 min late, which is useless against a 15-min
@@ -7,7 +7,28 @@ name = "coach-bill-keepalive"
 main = "index.ts"
 compatibility_date = "2026-09-03"
 
-# Every 10 minutes — beats Render Free's 15-minute idle spin-down with margin,
-# and survives one missed run before the service goes cold.
+# No fetch() handler exists here — this Worker is only a cron target — so a public
+# *.workers.dev URL would serve nothing but errors while still accepting (and
+# counting) requests. Turn it off rather than publish a door to an empty room.
+workers_dev = false
+
+# Required for console.log/console.error to persist to Workers Logs. Without it the
+# only way to read this Worker's output is a live `wrangler tail` — someone already
+# sitting and watching — which is no use for a failure at 03:10. index.ts's entire
+# error-reporting strategy is these two calls, so the setting that makes them durable
+# belongs in the repo rather than left to an account-level default.
+[observability]
+enabled = true
+
+# Every 5 minutes against Render Free's 15-minute idle spin-down, and the margin is
+# the whole point. At */10 a single missed or delayed invocation leaves a 20-minute
+# gap — LONGER than the timeout — so the service spins down and the next visitor eats
+# the 22-32s cold start this Worker exists to prevent. At */5, one miss still leaves
+# only 10 minutes. Cloudflare cron triggers are documented best-effort, not
+# guaranteed-punctual, so "survives one missed run" has to be a property we actually
+# have rather than a sentence we wrote.
+#
+# It costs nothing: 288 invocations/day against Cloudflare Free's 100k/day, and ZERO
+# extra Render instance-hours — the service is warm 24/7 either way.
 [triggers]
-crons = ["*/10 * * * *"]
+crons = ["*/5 * * * *"]

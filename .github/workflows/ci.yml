@@ -29,6 +29,7 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
       schema: ${{ steps.filter.outputs.schema }}
+      worker: ${{ steps.filter.outputs.worker }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v4
@@ -48,6 +49,14 @@ jobs:
             # on `backend` for PRs that touch no backend code at all.
             schema:
               - 'supabase/**'
+              - '.github/workflows/ci.yml'
+            # The Cloudflare keep-alive Worker. It has no package.json and no build step —
+            # wrangler bundles it with esbuild, which STRIPS types without checking them — so
+            # without a job of its own this directory is the one place in the repo where TS
+            # strict and the no-`any` rule are enforced by nothing at all. A worker-only PR
+            # used to run zero jobs and still go green on `ci-ok`.
+            worker:
+              - 'worker/**'
               - '.github/workflows/ci.yml'
 
   backend:
@@ -140,14 +149,34 @@ jobs:
         run: npm test
 
   # The single required check. Green only when everything that needed to run succeeded.
+  worker:
+    needs: changes
+    if: needs.changes.outputs.worker == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker/keepalive
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # The type-check is the point: esbuild would happily bundle `res.staus`.
+      - name: Type-check
+        run: npx -y -p typescript@5 tsc --noEmit -p tsconfig.json
+      # And this catches what tsc cannot: a broken wrangler.toml, a bad cron expression,
+      # or a bundle that fails to build. No Cloudflare credentials are needed for a dry run.
+      - name: Validate wrangler config and bundle
+        run: npx -y wrangler@4 deploy --dry-run
+
   ci-ok:
-    needs: [changes, backend, frontend, rls-tests]
+    needs: [changes, backend, frontend, rls-tests, worker]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Verify all results are success or skipped
         run: |
-          results="${{ needs.changes.result }} ${{ needs.backend.result }} ${{ needs.frontend.result }} ${{ needs.rls-tests.result }}"
+          results="${{ needs.changes.result }} ${{ needs.backend.result }} ${{ needs.frontend.result }} ${{ needs.rls-tests.result }} ${{ needs.worker.result }}"
           echo "job results: $results"
           for r in $results; do
             case "$r" in
