@@ -42,6 +42,14 @@ function Onboarding() {
       await auth.refreshProfile()
     } catch {
       setError(true)
+    } finally {
+      // ALWAYS, not just on the failure path (#46 row 15). `busy` used to be cleared only in
+      // the `catch`, and `refreshProfile` never rejects — it catches internally and reports
+      // through `profileError` — so a save that SUCCEEDED followed by a failed `/me` reached
+      // neither branch. The form was left switched off on "Saving…" with the user's data
+      // already stored, and `ProtectedRoute` correctly declines to blank a screen it can still
+      // render, so nothing took over. The way out has to be here, on the screen that owns the
+      // submit.
       setBusy(false)
     }
   }
@@ -145,7 +153,12 @@ function Onboarding() {
             </span>
           </label>
 
-          {error && (
+          {/* `auth.profileError` as well as the local `error`, because the two failures arrive
+              by different routes and only one of them throws: `updateMe` rejects, but a failed
+              profile refresh RESOLVES and reports itself on the context. Reading it live here
+              is what turns that second case from a silent nothing into something the user can
+              see and act on (#46 row 15). */}
+          {(error || auth.profileError) && (
             <p role="alert" className="text-sm text-fg-muted">
               That didn&rsquo;t save — try again.
             </p>
