@@ -1,0 +1,23 @@
+{
+  // This directory has no package.json and no build step — wrangler bundles it with
+  // esbuild, which STRIPS types without checking them. Without this file and the CI
+  // job that runs it, `worker/**` would be the one place in the repo where TS strict
+  // and the no-`any` rule are enforced by nothing at all.
+  "compilerOptions": {
+    "target": "ES2023",
+    // DOM supplies fetch/Response/AbortSignal/console; `types: []` keeps @types/node
+    // from leaking a Node global surface the Workers runtime does not have.
+    "lib": ["ES2023", "DOM"],
+    "types": [],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["index.ts"]
+}

@@ -1,0 +1,48 @@
+# Keep-alive cron for the Render Free API (see index.ts).
+#
+# Why a Worker and not just the GitHub Action: GitHub's scheduled runners are
+# throttled and routinely fire 10-30 min late, which is useless against a 15-min
+# idle timeout. Cloudflare cron triggers are punctual and free.
+name = "coach-bill-keepalive"
+main = "index.ts"
+compatibility_date = "2026-09-03"
+
+# No fetch() handler exists here — this Worker is only a cron target — so a public
+# *.workers.dev URL would serve nothing but errors while still accepting (and
+# counting) requests. Turn it off rather than publish a door to an empty room.
+workers_dev = false
+
+# Required for console.log/console.error to persist to Workers Logs. Without it the
+# only way to read this Worker's output is a live `wrangler tail` — someone already
+# sitting and watching — which is no use for a failure at 03:10. index.ts's entire
+# error-reporting strategy is these two calls, so the setting that makes them durable
+# belongs in the repo rather than left to an account-level default.
+[observability]
+enabled = true
+
+# WHEN, and it is a cost decision as much as a technical one.
+#
+# Every 5 minutes, and the interval matters: at */10 a single missed or delayed
+# invocation leaves a 20-minute gap — LONGER than Render Free's 15-minute idle
+# spin-down — so the service dies and the next visitor eats the 22-32s cold start this
+# Worker exists to prevent. At */5, one miss still leaves only 10 minutes. Cloudflare
+# cron triggers are documented best-effort, not guaranteed-punctual, so "survives one
+# missed run" has to be a property we actually have rather than a sentence we wrote.
+# The frequency itself is free: 288/day against Cloudflare Free's 100k/day.
+#
+# But only for 21 hours a day (09:00-23:59 and 00:00-05:59 UTC), and THAT is the
+# expensive part. Render's 750 monthly instance-hours are per WORKSPACE, and a
+# spun-down service consumes none of them — so warming it is what spends them.
+# Warm 24/7 = 744 of 750 in a 31-day month: 0.8% headroom, and per Render's docs
+# blowing the budget SUSPENDS ALL FREE WEB SERVICES until the 1st. That is a whole
+# outage class bought for four hours nobody is awake.
+#
+#   21h x 31 = 651 hours, leaving ~99 in hand.
+#
+# Pinned to UTC because cron is, so the local window drifts an hour at DST: the API is
+# warm 05:00-02:00 ET in summer and 04:00-01:00 ET in winter, cold in the small hours
+# either way. Starting at 09:00 UTC rather than 10:00 is deliberate — the first ping of
+# the window is the one that absorbs the cold start, so it has to land BEFORE anyone
+# arrives, not at the moment they do.
+[triggers]
+crons = ["*/5 0-5,9-23 * * *"]

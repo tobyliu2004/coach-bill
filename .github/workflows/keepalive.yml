@@ -1,10 +1,35 @@
 # Keep-alive ping (gap-audit item, July 2026):
 # - Supabase Free pauses the whole project after ~7 days without API activity.
-# - Render Free spins the service down after 15 min idle (~1 min cold start).
+# - Render Free spins the service down after 15 min idle.
 # One ping to /health/db exercises BOTH (Render serves it; the SELECT 1 touches Supabase).
-# Every 4 hours keeps Supabase alive; it does NOT keep Render always-warm (that would
-# burn the 750 free instance-hours/mo) — cold starts are acceptable until launch, when
-# we flip to the always-on Starter instance anyway.
+#
+# THIS IS NO LONGER THE PRIMARY KEEP-ALIVE. `worker/keepalive/` is a Cloudflare cron
+# that pings every 5 minutes, which is what actually keeps Render warm — a cold
+# /health/db measured 32.5s on 2026-09-02, and 4-hourly could never prevent that.
+# GitHub's scheduled runners are throttled and routinely fire 10-30 min late, so they
+# are structurally unfit to beat a 15-minute idle timeout.
+#
+# This workflow stays on as the BACKSTOP, and its job is now monitoring rather than
+# warming. The Worker rethrows on failure so Cloudflare marks the cron invocation
+# failed, but nothing on the free plan EMAILS about that; a red run here does. Keep it
+# failing loudly. One caveat on this as a safety net: GitHub disables scheduled
+# workflows after 60 days without repository activity, so it protects an active repo
+# and quietly stops protecting a dormant one.
+#
+# ⚠️ COST — read before spinning up anything else free on Render. Render's 750
+# instance-hours/month are per WORKSPACE, not per service, and a spun-down service
+# consumes none of them, so warming the API is what spends them. Per Render's docs,
+# consuming all 750 SUSPENDS ALL FREE WEB SERVICES until the start of the next month —
+# the consequence is an outage until the 1st, not merely "no second free service".
+#   https://render.com/docs/free
+#
+# Which is why the Worker runs 21h/day rather than 24: warm 24/7 is 744 of 750 in a
+# 31-day month (0.8% headroom), against 651 (~99 hours in hand) for the window we use.
+# The API is therefore COLD in the small hours by design — roughly 02:00-05:00 ET — and
+# a first request in that window still pays the ~30s cold start. That is deliberate:
+# four sleeping hours are not worth an outage class. The $7 Starter plan is the clean
+# exit whenever that trade stops being worth it, and it makes this Worker redundant
+# rather than wrong.
 
 name: keepalive
 
